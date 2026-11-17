@@ -1,0 +1,2 @@
+paramiko>=5,<6
+keyring>=25,<30

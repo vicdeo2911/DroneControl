@@ -1,0 +1,23 @@
+name: Offline checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check source deployment manifest
+        run: python -m unittest discover -s tests -p test_project_layout.py
+      - name: Check atomic settings persistence
+        run: python -m unittest discover -s tests -p test_state_store.py
+      - name: Validate offline deployment plan
+        run: python deploy.py plan

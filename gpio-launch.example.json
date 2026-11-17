@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "pin": null,
+  "active_high": true,
+  "debounce_seconds": 0.05,
+  "mode": "behind",
+  "dry_run": true,
+  "restore_outputs": false
+}

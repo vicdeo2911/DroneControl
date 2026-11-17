@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pi Vision · Live detection</title>
+  <style>
+    :root {color-scheme:dark;font-family:system-ui,sans-serif;background:#10151c;color:#e5edf5}
+    body {max-width:1160px;margin:0 auto;padding:32px 20px}
+    header {display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:28px}
+    h1 {font-size:28px;letter-spacing:-.8px;margin:0 0 6px} p {margin:0;color:#95a6b9;line-height:1.6}
+    .badge {border:1px solid #384758;border-radius:30px;padding:7px 14px;font-size:13px;white-space:nowrap}
+    .live {color:#74e6a4;border-color:#286243}
+    .video {background:#05080c;border:1px solid #2b3848;border-radius:16px;overflow:hidden;aspect-ratio:16/9}
+    .video img {width:100%;height:100%;object-fit:contain;display:block}
+    .stats {display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}
+    .stat,.panel {background:#19212c;border:1px solid #2b3848;border-radius:12px;padding:18px}
+    .label {color:#95a6b9;font-size:12px;letter-spacing:1px;text-transform:uppercase}
+    .value {font-size:25px;font-weight:600;margin-top:8px}.panel {margin-top:14px}
+    .control-grid {display:grid;grid-template-columns:1fr 1fr auto;gap:24px;align-items:center}
+    .control-label {display:flex;justify-content:space-between;gap:12px;margin-bottom:12px;font-size:14px}
+    input[type=range] {width:100%;accent-color:#74e6a4;cursor:pointer}
+    output {font-weight:600;color:#74e6a4;white-space:nowrap}
+    button {background:#74e6a4;color:#10251a;font:600 14px system-ui;border:0;border-radius:8px;padding:12px 20px;cursor:pointer}
+    button:disabled {opacity:.5;cursor:wait}
+    .hint {font-size:12px;color:#95a6b9;line-height:1.6;margin-top:10px}
+    .usage {display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:20px}
+    .usage .value {font-size:27px} meter {width:100%;height:14px;margin-top:12px;accent-color:#74e6a4}
+    details {margin-top:14px;font-size:12px;color:#95a6b9;line-height:1.8} summary {cursor:pointer}
+    #settings-message {min-height:20px;color:#95a6b9;font-size:13px;margin-top:12px}
+    #objects {line-height:1.8;margin-top:10px} #notice {color:#efc278;margin-top:10px}
+    a {color:#8abfff} footer {font-size:13px;color:#95a6b9;margin-top:24px;line-height:1.7}
+    @media(max-width:600px) {.stats{grid-template-columns:repeat(2,1fr)}header{align-items:flex-start}h1{font-size:24px}.control-grid{grid-template-columns:1fr;gap:20px}.usage{grid-template-columns:1fr}.control-grid button{width:100%}}
+  </style>
+</head>
+<body>
+  <header><div><h1>Pi Vision</h1><p>Live object detection · Raspberry Pi 5 + AI HAT+</p></div><span id="state" class="badge">Connecting…</span></header>
+  <!-- /stream.mjpg is also available for MJPEG clients. The page pulls fresh snapshots to avoid a network backlog. -->
+  <div class="video"><img id="video" src="/snapshot.jpg" alt="Live camera view with YOLO detection boxes"></div>
+  <section class="panel" aria-label="Live camera controls">
+    <div class="control-grid">
+      <div><label class="control-label" for="rate">Target camera rate <output id="rate-value" for="rate">15 fps</output></label><input id="rate" type="range" min="1" max="60" step="1" value="15" disabled><div class="hint">1–60 fps. Actual rate depends on the scene and processing load.</div></div>
+      <div><label class="control-label" for="zoom">Digital zoom <output id="zoom-value" for="zoom">1.0×</output></label><input id="zoom" type="range" min="1" max="4" step="0.1" value="1" disabled><div class="hint">Center crop. 1× resets the view; higher zoom reduces detail.</div></div>
+      <button id="apply" disabled>Apply changes</button>
+    </div>
+    <div id="settings-message" role="status">Waiting for the camera…</div>
+    <p class="hint">Controls affect all viewers and detection. Camera settings are saved across service restarts.</p>
+  </section>
+  <section class="usage" aria-label="Pi resource usage">
+    <div class="stat"><div class="label">CPU usage</div><div id="cpu" class="value">—</div><meter id="cpu-meter" min="0" max="100" value="0" aria-label="CPU usage"></meter><div id="cpu-detail" class="hint">Whole Pi · all CPU cores</div></div>
+    <div class="stat"><div class="label">GPU activity</div><div id="gpu" class="value">—</div><meter id="gpu-meter" min="0" max="100" value="0" aria-label="GPU activity"></meter><div class="hint">Busiest 3D engine · readable clients</div></div>
+    <div class="stat"><div class="label">NPU usage</div><div id="npu" class="value">—</div><meter id="npu-meter" min="0" max="100" value="0" aria-label="NPU usage"></meter><div class="hint">HailoRT utilization · sampled each second</div></div>
+  </section>
+  <details><summary>About these measurements</summary><div id="usage-detail">Waiting for a usage sample…</div><p>The GPU meter covers V3D graphics/compute engines, using clients this account can read. It excludes the camera ISP and does not include your laptop's GPU. Detection runs on the Hailo NPU; image processing and JPEG encoding run on the Pi CPU. NPU usage comes from HailoRT's transfer/runtime activity monitor, not a percentage of its advertised TOPS. Unavailable counters display N/A.</p></details>
+  <div class="stats">
+    <div class="stat"><div class="label">Detection rate</div><div id="fps" class="value">—</div></div>
+    <div class="stat"><div class="label">NPU inference</div><div id="latency" class="value">—</div></div>
+    <div class="stat"><div class="label">Objects now</div><div id="count" class="value">—</div></div>
+    <div class="stat"><div class="label">Pi temperature</div><div id="temp" class="value">—</div></div>
+  </div>
+  <div class="panel"><div class="label">Current detections</div><div id="objects">Waiting for the camera…</div><div id="notice" role="status"></div></div>
+  <section class="panel" id="recordingPanel"><h2>Record clean video for labeling</h2><p>Record on the Pi, then extract frames in the laptop training studio.</p>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:14px"><label for="recordResolution">Recording resolution</label><select id="recordResolution"><option value="960x540">960 x 540</option><option value="1280x720">1280 x 720</option><option value="1920x1080" selected>1920 x 1080 (1080p)</option></select><label for="recordFps">Recording FPS</label><select id="recordFps"><option value="15">15</option><option value="25">25</option><option value="30">30</option><option value="50" selected>50</option></select><label for="recordSeconds">Clip length (seconds)</label><input id="recordSeconds" type="number" min="1" max="300" value="60" style="width:90px;padding:10px"><button id="startRecording">Record video</button><button id="stopRecording" disabled>Stop &amp; save</button></div>
+    <p id="recordingStatus" class="hint">Connecting to recorder…</p><p id="recordingMessage" class="hint" role="status"></p>
+    <label for="recordingSelect" class="hint" style="display:block">Completed recordings</label><select id="recordingSelect" style="max-width:100%;padding:10px;margin:8px 0"><option value="">No completed clips yet</option></select>
+    <div><a id="downloadRecording" hidden>Download video</a> · <a href="http://localhost:8010/" target="_blank" rel="noopener">Extract frames and label on this laptop ↗</a></div>
+    <p class="hint">Clean AVI clips contain no detection overlays. Recording continues if you close this page and stops automatically at the selected length (maximum 5 minutes; large clips stop near 1.75 GiB).</p>
+  </section>
+  <footer><span id="hardware">CAM0 · YOLOv8s</span> · <a href="/snapshot.jpg" target="_blank" rel="noopener">Annotated snapshot</a> · <a href="/raw.jpg" target="_blank" rel="noopener">Clean training snapshot</a><br>Detection and camera capture rates are independent; recording uses captured frames. Browser delivery is shown separately above. Recording starts only when you press Record video.</footer>
+  <script src="/static/recording.js"></script>
+  <script src="/camera-preview.js"></script>
+  <script>
+    const el = id => document.getElementById(id);
+    let wasReady = false;
+    let dirty = false, saving = false, pendingRevision = null;
+    let previewRate = 0;
+    const preview = new LatestCameraPreview(el('video'), '/snapshot.jpg', stats => {
+      previewRate = stats.ready ? stats.fps : 0;
+    });
+    window.addEventListener('pagehide', () => preview.stop());
+    function showControls() {
+      el('rate-value').textContent = `${el('rate').value} fps`;
+      el('zoom-value').textContent = `${Number(el('zoom').value).toFixed(1)}×`;
+    }
+    for (const id of ['rate', 'zoom']) el(id).addEventListener('input', () => {
+      dirty = true; showControls(); el('settings-message').textContent = 'Press Apply changes to update the camera.';
+    });
+    el('apply').addEventListener('click', async () => {
+      saving = true; el('apply').disabled = true;
+      try {
+        const response = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({fps:Number(el('rate').value), zoom:Number(el('zoom').value)}), signal:AbortSignal.timeout(5000)});
+        const data = await response.json();
+        if (!response.ok) throw Error(data.error || 'Could not change camera settings.');
+        preview.setRate(data);
+        dirty = false; pendingRevision = data.revision;
+        el('settings-message').textContent = 'Updating camera…';
+      } catch (error) { el('settings-message').textContent = error.message; }
+      finally { saving = false; el('apply').disabled = !wasReady; }
+    });
+    function showUsage(name, value) {
+      el(name).textContent = value == null ? 'N/A' : `${value.toFixed(1)}%`;
+      el(`${name}-meter`).value = value == null ? 0 : value;
+      el(`${name}-meter`).hidden = value == null;
+    }
+    async function update() {
+      try {
+        const response = await fetch('/api/status', {cache:'no-store', signal:AbortSignal.timeout(4000)});
+        if (!response.ok) throw Error('Status unavailable');
+        const data = await response.json();
+        preview.setRate(data);
+        el('rate').disabled = !data.ready;
+        el('rate').max = data.limits.fps_max;
+        el('zoom').disabled = !data.ready || !data.limits.zoom_supported;
+        el('apply').disabled = !data.ready || saving;
+        if (!dirty && !saving) {
+          el('rate').value = data.settings.fps; el('zoom').value = data.settings.zoom; showControls();
+          if (pendingRevision == null || data.applied_revision >= pendingRevision) {
+            el('settings-message').textContent = data.ready ? `Target ${data.settings.fps} fps · Camera ${data.camera_fps || '—'} fps · Browser ${previewRate.toFixed(1)} fps · Digital zoom ${Number(data.settings.zoom).toFixed(1)}×` : 'Waiting for the camera…';
+            pendingRevision = null;
+          }
+        }
+        const usage = data.usage || {};
+        showUsage('cpu', usage.cpu_percent); showUsage('gpu', usage.gpu_percent); showUsage('npu', usage.npu_percent);
+        el('cpu-detail').textContent = usage.process_cpu_percent == null ? 'Whole Pi · all CPU cores' : `Whole Pi · camera process ${usage.process_cpu_percent.toFixed(1)}%`;
+        el('usage-detail').textContent = `CPU cores: ${Object.values(usage.cpu_cores || {}).map(v => v == null ? 'N/A' : v + '%').join(', ') || 'sampling…'}. Memory: ${usage.memory_percent ?? '—'}%. GPU engines: ${Object.entries(usage.gpu_engines || {}).map(([k,v]) => k + ' ' + v + '%').join(', ') || 'unavailable'}.`;
+        el('state').textContent = data.ready ? '● Live' : (data.error ? 'Camera error' : 'Starting…');
+        el('state').className = 'badge' + (data.ready ? ' live' : '');
+        el('fps').textContent = data.ready ? `${data.fps} fps` : '—';
+        el('latency').textContent = data.ready ? `${data.inference_ms} ms` : '—';
+        el('count').textContent = data.ready ? data.detections.length : '—';
+        el('temp').textContent = data.temperature_c == null ? '—' : `${data.temperature_c} °C`;
+        el('objects').textContent = data.ready ? (data.detections.map(d => `${d.label} ${Math.round(d.confidence*100)}%`).join(' · ') || 'No objects above the confidence threshold.') : 'Waiting for live frames…';
+        el('hardware').textContent = `${data.camera || 'CAM0'} · ${data.architecture || 'Hailo'} · ${data.model || 'YOLOv8s'}`;
+        el('notice').textContent = data.error || (data.undervoltage_now ? 'Pi undervoltage detected. Check the power supply.' : data.undervoltage_since_boot ? 'The Pi recorded undervoltage earlier in this boot. Check the power supply if performance drops.' : '');
+        wasReady = data.ready;
+      } catch (error) {
+        el('state').textContent = 'Disconnected'; el('state').className = 'badge';
+        el('objects').textContent = 'Connection lost. Retrying automatically…';
+        for (const id of ['rate', 'zoom', 'apply']) el(id).disabled = true;
+        for (const name of ['cpu', 'gpu', 'npu']) showUsage(name, null);
+        wasReady = false;
+      }
+      setTimeout(update, 1000);
+    }
+    update();
+  </script>
+</body>
+</html>
