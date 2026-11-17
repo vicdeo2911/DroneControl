@@ -25,11 +25,11 @@ class HailoActivationTests(unittest.TestCase):
         proof.mkdir()
         (proof/'result.json').write_text(json.dumps([dict(model_sha256=self.digest,
             model_input_shape=[640,640,3],preparation='full')]))
-        spec=importlib.util.spec_from_file_location('activation_test',Path(__file__).resolve().parents[1]/'activate_hailo.py')
+        spec=importlib.util.spec_from_file_location('activation_test',Path(__file__).resolve().parents[1]/'pi_vision/maintenance/activate_hailo.py')
         self.module=importlib.util.module_from_spec(spec)
         fcntl=SimpleNamespace(LOCK_EX=2,LOCK_NB=4,flock=MagicMock())
         inspector=SimpleNamespace(preflight=MagicMock(),read_status=MagicMock())
-        with patch.dict(sys.modules,{'fcntl':fcntl,'inspect_hailo':inspector}):
+        with patch.dict(sys.modules,{'fcntl':fcntl,'pi_vision.maintenance.inspect_hailo':inspector}):
             spec.loader.exec_module(self.module)
         self.module.ROOT=self.root
         self.module.OVERRIDE=self.root/'systemd'/'50-plane-target.conf'
@@ -44,6 +44,13 @@ class HailoActivationTests(unittest.TestCase):
     def write_request(self):
         (self.folder/'request.json').write_text(json.dumps(self.request))
 
+    def test_camera_arguments_support_legacy_and_package_launchers(self):
+        for launcher in (['/home/user/pi-vision/app.py'], ['-m', 'pi_vision.camera.app']):
+            command = ['python3', *launcher, '--fps', '50', '--model', 'old.hef']
+            with patch.object(self.module.subprocess, 'check_output', return_value='123'), \
+                 patch.object(Path, 'read_bytes', return_value=b'\0'.join(part.encode() for part in command)):
+                self.assertEqual(self.module.current_arguments(), ['--fps', '50', '--model', 'old.hef'])
+
     def patches(self):
         return (patch.object(self.module,'preflight'),
             patch.object(self.module,'read_status',return_value=self.before),
@@ -57,6 +64,7 @@ class HailoActivationTests(unittest.TestCase):
              patch.object(self.module,'wait_camera',return_value=dict(model=expected)):
             result=self.module.activate(self.job)
         config=self.module.OVERRIDE.read_text()
+        self.assertIn('scripts/run-camera.sh', config.replace('\\\\', '/'))
         self.assertIn('"--fps" "50"',config)
         self.assertIn('"--threshold" "0.55"',config)
         self.assertIn('"--quality" "72"',config)

@@ -1,7 +1,7 @@
 import unittest
 
-from spatial_detection import SpatialDetector, search_regions, translate_detections, merge_detections
-from training_data import native_crops
+from pi_vision.shared.spatial_detection import SpatialDetector, search_regions, translate_detections, merge_detections
+from pi_vision.studio.training_data import native_crops
 
 
 def plane(x, y):

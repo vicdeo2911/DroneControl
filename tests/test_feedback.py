@@ -7,7 +7,7 @@ from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer
 import threading
 
-from remote_control import Remote, control_worker, handler_for
+from pi_vision.control.remote_control import Remote, control_worker, handler_for
 from test_remote_control import FakeBus
 
 
@@ -17,7 +17,7 @@ class FeedbackTests(unittest.TestCase):
         remote.autonomy.active = True
         remote.autonomy.config = {'feedback_hz': 40}
         done.is_set.side_effect = [False, True]
-        with patch('remote_control.camera_status', return_value={}), patch('remote_control.time.monotonic', side_effect=[1, 1.006]):
+        with patch('pi_vision.control.remote_control.camera_status', return_value={}), patch('pi_vision.control.remote_control.time.monotonic', side_effect=[1, 1.006]):
             control_worker(remote, done)
         self.assertAlmostEqual(done.wait.call_args.args[0], .019)
 
@@ -37,7 +37,7 @@ class FeedbackTests(unittest.TestCase):
         with urlopen(req, timeout=2) as response: return json.load(response)
 
     def test_camera_fps_validation_and_active_session_guard(self):
-        with patch('remote_control.urllib.request.urlopen') as upstream:
+        with patch('pi_vision.control.remote_control.urllib.request.urlopen') as upstream:
             for value in (0, 61, 30.5, True):
                 with self.assertRaises(HTTPError): self.post({'fps': value})
             self.remote.autonomy.active = True
@@ -47,7 +47,7 @@ class FeedbackTests(unittest.TestCase):
     def test_camera_fps_forwards_only_the_rate_to_fixed_loopback(self):
         response = MagicMock()
         response.__enter__.return_value = io.BytesIO(b'{"settings":{"fps":30}}')
-        with patch('remote_control.urllib.request.urlopen', return_value=response) as upstream:
+        with patch('pi_vision.control.remote_control.urllib.request.urlopen', return_value=response) as upstream:
             self.assertEqual(self.post({'fps': 30, 'url': 'http://example.com'})['settings']['fps'], 30)
         request = upstream.call_args.args[0]
         self.assertEqual(request.full_url, 'http://127.0.0.1:8000/api/settings')
@@ -59,7 +59,7 @@ class FeedbackTests(unittest.TestCase):
         response.headers = {'Content-Type': 'image/jpeg', 'X-Frame-Sequence': '12', 'X-Frame-Age': '0.06'}
         response.read.return_value = b'jpeg'
         before = list(self.remote.bus.writes)
-        with patch('remote_control.urllib.request.urlopen', return_value=response) as upstream:
+        with patch('pi_vision.control.remote_control.urllib.request.urlopen', return_value=response) as upstream:
             with urlopen(self.base + '/camera/preview.jpg?after=11', timeout=2) as result:
                 self.assertEqual(result.read(), b'jpeg')
                 self.assertEqual(result.headers['X-Frame-Sequence'], '12')
@@ -72,7 +72,7 @@ class FeedbackTests(unittest.TestCase):
         req = Request(self.base + '/api/autonomous/start',
             data=json.dumps(dict(version=2, mode='behind', dry_run=True, source='gpio')).encode(),
             headers={'Content-Type': 'application/json'})
-        with patch('autonomous.camera_status', return_value=camera):
+        with patch('pi_vision.control.autonomous.camera_status', return_value=camera):
             with urlopen(req, timeout=2) as response: result = json.load(response)
         self.assertEqual(result['source'], 'web')
         self.assertIsInstance(result['owner'], str)

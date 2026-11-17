@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock,patch
 
-from training_studio import create_app
+from pi_vision.studio.training_studio import create_app
 
 
 class HailoLiveTests(unittest.TestCase):
@@ -28,9 +28,9 @@ class HailoLiveTests(unittest.TestCase):
         self.directory.cleanup()
 
     def test_live_status_uses_active_pi_results_without_inspection_or_activation(self):
-        with patch('training_studio.camera_json',return_value=self.status), \
-             patch('training_studio.inspect_on_pi') as inspect, \
-             patch('training_studio.activate_on_pi') as activate:
+        with patch('pi_vision.studio.training_studio.camera_json',return_value=self.status), \
+             patch('pi_vision.studio.training_studio.inspect_on_pi') as inspect, \
+             patch('pi_vision.studio.training_studio.activate_on_pi') as activate:
             response=self.client.get('/api/hailo/live?'+self.query)
         self.assertEqual(response.status_code,200,response.json)
         self.assertEqual(response.json['backend'],'hailo_live')
@@ -41,13 +41,13 @@ class HailoLiveTests(unittest.TestCase):
     def test_wrong_model_stale_disabled_or_unsupported_preview_is_refused(self):
         for changes in (dict(model_sha256='f'*64),dict(model_sha256=None),dict(ready=False),
                         dict(preview_fps_limit=0),dict(preview_age_seconds=3)):
-            with self.subTest(changes=changes),patch('training_studio.camera_json',return_value={**self.status,**changes}):
+            with self.subTest(changes=changes),patch('pi_vision.studio.training_studio.camera_json',return_value={**self.status,**changes}):
                 response=self.client.get('/api/hailo/live?'+self.query)
                 self.assertEqual(response.status_code,400,response.json)
 
     def test_changed_local_hef_is_refused(self):
         self.model.write_bytes(b'replaced-model')
-        with patch('training_studio.camera_json') as camera:
+        with patch('pi_vision.studio.training_studio.camera_json') as camera:
             response=self.client.get('/api/hailo/live?'+self.query)
             self.assertEqual(response.status_code,400)
             camera.assert_not_called()
@@ -56,8 +56,8 @@ class HailoLiveTests(unittest.TestCase):
         upstream=MagicMock()
         upstream.headers={'Content-Type':'multipart/x-mixed-replace; boundary=frame','X-Model-SHA256':self.sha}
         upstream.read1.side_effect=[b'--frame\r\npi-annotated-jpeg',b'']
-        with patch('training_studio.camera_json',return_value=self.status), \
-             patch('training_studio.urllib.request.urlopen',return_value=upstream) as fetch:
+        with patch('pi_vision.studio.training_studio.camera_json',return_value=self.status), \
+             patch('pi_vision.studio.training_studio.urllib.request.urlopen',return_value=upstream) as fetch:
             response=self.client.get('/camera/hailo.mjpg?'+self.query)
             self.assertEqual(response.status_code,200)
             self.assertIn(b'pi-annotated-jpeg',response.data)
@@ -67,8 +67,8 @@ class HailoLiveTests(unittest.TestCase):
     def test_model_change_between_status_and_stream_does_not_display_wrong_model(self):
         upstream=MagicMock()
         upstream.headers={'Content-Type':'multipart/x-mixed-replace; boundary=frame','X-Model-SHA256':'f'*64}
-        with patch('training_studio.camera_json',return_value=self.status), \
-             patch('training_studio.urllib.request.urlopen',return_value=upstream):
+        with patch('pi_vision.studio.training_studio.camera_json',return_value=self.status), \
+             patch('pi_vision.studio.training_studio.urllib.request.urlopen',return_value=upstream):
             response=self.client.get('/camera/hailo.mjpg?'+self.query)
             self.assertEqual(response.status_code,400)
         upstream.close.assert_called_once()

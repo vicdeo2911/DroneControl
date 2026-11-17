@@ -1,0 +1,17 @@
+[Unit]
+Description=Pi DAC browser remote
+After=network.target
+
+[Service]
+Type=simple
+User=user
+WorkingDirectory=/home/user/pi-vision
+ExecStart=/usr/bin/python3 -u -m pi_vision.control.remote_control
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

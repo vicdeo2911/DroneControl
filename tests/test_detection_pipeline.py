@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 
 from test_camera_recording import fake_camera_app
-from spatial_detection import search_regions
+from pi_vision.shared.spatial_detection import search_regions
 
 
 class DetectionPipelineTests(unittest.TestCase):

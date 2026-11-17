@@ -20,4 +20,4 @@ jobs:
       - name: Check atomic settings persistence
         run: python -m unittest discover -s tests -p test_state_store.py
       - name: Validate offline deployment plan
-        run: python deploy.py plan
+        run: python -m pi_vision.deployment.deploy plan

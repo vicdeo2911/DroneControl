@@ -11,9 +11,9 @@ from http.server import ThreadingHTTPServer
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from flight_recorder import FlightRecorder
-from remote_control import Remote, handler_for
-from control_calibration import Calibration
+from pi_vision.control.flight_recorder import FlightRecorder
+from pi_vision.control.remote_control import Remote, handler_for
+from pi_vision.control.control_calibration import Calibration
 from test_remote_control import FakeBus, PROFILE
 
 

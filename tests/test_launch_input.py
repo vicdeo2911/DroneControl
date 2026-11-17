@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 
-from autonomous import Autonomous
-from launch_input import GpioLaunch, load_config
-from remote_control import Remote
+from pi_vision.control.autonomous import Autonomous
+from pi_vision.control.launch_input import GpioLaunch, load_config
+from pi_vision.control.remote_control import Remote
 from test_remote_control import FakeBus, PROFILE
-from control_calibration import Calibration
+from pi_vision.control.control_calibration import Calibration
 
 
 class LaunchInputTests(unittest.TestCase):
@@ -99,7 +99,7 @@ class LaunchInputTests(unittest.TestCase):
         self.stable(False)
         camera = dict(ready=True, labels=['plane'], frames=1, frame_age_seconds=0,
                       frame_size=[1000, 500], detections=[])
-        with patch('autonomous.camera_status', return_value=camera):
+        with patch('pi_vision.control.autonomous.camera_status', return_value=camera):
             self.stable(True)
         auto = self.remote.autonomy
         self.assertEqual(auto.source, 'gpio')

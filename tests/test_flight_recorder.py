@@ -14,9 +14,9 @@ import threading
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from flight_recorder import FlightRecorder
-from remote_control import Remote, handler_for
-from control_calibration import Calibration
+from pi_vision.control.flight_recorder import FlightRecorder
+from pi_vision.control.remote_control import Remote, handler_for
+from pi_vision.control.control_calibration import Calibration
 from test_remote_control import FakeBus, PROFILE
 
 
@@ -40,7 +40,7 @@ class FlightLogTests(unittest.TestCase):
     def test_complete_flight_records_commands_sweep_and_settings_without_token(self):
         self.remote.set_limits(80, 60)
         token = self.remote.enable(source='joystick')['token']
-        with patch('remote_control.time.sleep'):
+        with patch('pi_vision.control.remote_control.time.sleep'):
             self.remote._sweep(token)
         self.remote.update(token, 0, 40, -30)
         self.remote.stop('Pilot finished flight')

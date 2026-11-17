@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from state_store import save_json
+from pi_vision.shared.state_store import save_json
 
 
 class StateStoreTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class StateStoreTests(unittest.TestCase):
             path = Path(directory) / 'settings.json'
             save_json(path, {'old': True})
             before = path.read_bytes()
-            with patch('state_store.os.replace', side_effect=OSError('disk failure')):
+            with patch('pi_vision.shared.state_store.os.replace', side_effect=OSError('disk failure')):
                 with self.assertRaises(OSError): save_json(path, {'new': True})
             self.assertEqual(path.read_bytes(), before)
             self.assertEqual(json.loads(path.with_suffix('.tmp').read_text()), {'new': True})

@@ -13,7 +13,7 @@ from playwright.sync_api import sync_playwright
 from werkzeug.serving import make_server
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from training_studio import create_app
+from pi_vision.studio.training_studio import create_app
 
 
 def main():
@@ -50,11 +50,11 @@ def main():
         thread=threading.Thread(target=server.serve_forever,daemon=True)
         thread.start()
         try:
-            with patch('training_studio.inspect_on_pi',return_value=result) as inspect, \
-                 patch('training_studio.activate_on_pi',return_value=dict(activated=True,model='test.hef',
+            with patch('pi_vision.studio.training_studio.inspect_on_pi',return_value=result) as inspect, \
+                 patch('pi_vision.studio.training_studio.activate_on_pi',return_value=dict(activated=True,model='test.hef',
                     model_input_shape=[640,640,3])) as activate, \
-                 patch('training_studio.camera_json',side_effect=camera_json), \
-                 patch('training_studio.fetch_camera',return_value=(content,'9')),sync_playwright() as p:
+                 patch('pi_vision.studio.training_studio.camera_json',side_effect=camera_json), \
+                 patch('pi_vision.studio.training_studio.fetch_camera',return_value=(content,'9')),sync_playwright() as p:
                 browser=p.chromium.launch(channel='msedge',headless=True)
                 page=browser.new_page(viewport=dict(width=1440,height=1100))
                 errors=[]

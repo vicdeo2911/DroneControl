@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from training_data import Dataset, validate_boxes
-from training_studio import create_app, fetch_camera, relative_geometry
+from pi_vision.studio.training_data import Dataset, validate_boxes
+from pi_vision.studio.training_studio import create_app, fetch_camera, relative_geometry
 
 
 def picture(color='white', size=(160, 90)):
@@ -140,7 +140,7 @@ class TrainingTests(unittest.TestCase):
         response.__enter__.return_value = response
         response.headers = {'X-Frame-Age': '.1', 'X-Frame-Sequence': '42'}
         response.read.return_value = picture()
-        with patch('training_studio.urllib.request.urlopen', return_value=response) as opened:
+        with patch('pi_vision.studio.training_studio.urllib.request.urlopen', return_value=response) as opened:
             content, sequence = fetch_camera('http://camera')
             self.assertEqual(sequence, '42')
             self.assertEqual(content, picture())

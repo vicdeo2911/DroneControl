@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from playwright.sync_api import sync_playwright
-from control_calibration import Calibration
-from remote_control import Remote, handler_for
+from pi_vision.control.control_calibration import Calibration
+from pi_vision.control.remote_control import Remote, handler_for
 from test_remote_control import FakeBus, PROFILE
 
 
@@ -25,7 +25,7 @@ def main():
     server = ThreadingHTTPServer(('127.0.0.1', 0), handler_for(remote))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
-        with patch('remote_control.camera_status', return_value=info), patch('autonomous.camera_status', return_value=info), sync_playwright() as p:
+        with patch('pi_vision.control.remote_control.camera_status', return_value=info), patch('pi_vision.control.autonomous.camera_status', return_value=info), sync_playwright() as p:
             browser = p.chromium.launch(channel='msedge', headless=True)
             page = browser.new_page(viewport={'width': 1280, 'height': 900})
             errors = []

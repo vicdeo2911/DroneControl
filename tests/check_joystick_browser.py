@@ -12,8 +12,8 @@ from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from test_remote_control import FakeBus, PROFILE
-from control_calibration import Calibration
-from remote_control import Remote, handler_for
+from pi_vision.control.control_calibration import Calibration
+from pi_vision.control.remote_control import Remote, handler_for
 
 
 def main():

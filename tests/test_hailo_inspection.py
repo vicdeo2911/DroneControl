@@ -9,10 +9,10 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from hailo_inspection import compiled_models
+from pi_vision.studio.hailo_inspection import compiled_models
 from test_training import picture
-from training_studio import create_app
-from remote_control import Remote
+from pi_vision.studio.training_studio import create_app
+from pi_vision.control.remote_control import Remote
 from test_remote_control import FakeBus
 
 
@@ -58,7 +58,7 @@ class HailoInspectionTests(unittest.TestCase):
         app,ident=self.app()
         expected=dict(frame_size=[160,90],model_input_shape=[640,640,3],detections=[],
                       tiles=1,elapsed_ms=16,inference_ms=14)
-        with patch('training_studio.inspect_on_pi',return_value=expected) as inspect:
+        with patch('pi_vision.studio.training_studio.inspect_on_pi',return_value=expected) as inspect:
             response=app.test_client().post('/api/predict',json=dict(weights='old/compiled/model.hef',
                 image_id=ident,imgsz=1920,preparation='full',confidence=.55))
         self.assertEqual(response.status_code,200,response.json)
@@ -72,7 +72,7 @@ class HailoInspectionTests(unittest.TestCase):
     def test_invalid_artifact_and_confidence_never_contact_pi(self):
         self.hef('old/compiled/model.hef')
         app,ident=self.app()
-        with patch('training_studio.inspect_on_pi') as inspect:
+        with patch('pi_vision.studio.training_studio.inspect_on_pi') as inspect:
             for changes in (dict(weights='../private.hef'),dict(confidence=0),dict(preparation='bad')):
                 options=dict(weights='old/compiled/model.hef',image_id=ident)
                 response=app.test_client().post('/api/predict',json={**options,**changes})
@@ -82,7 +82,7 @@ class HailoInspectionTests(unittest.TestCase):
     def test_pi_refusal_is_a_visible_error(self):
         self.hef('old/compiled/model.hef')
         app,ident=self.app()
-        with patch('training_studio.inspect_on_pi',side_effect=ValueError('Stop controls first.')):
+        with patch('pi_vision.studio.training_studio.inspect_on_pi',side_effect=ValueError('Stop controls first.')):
             response=app.test_client().post('/api/predict',json=dict(weights='old/compiled/model.hef',image_id=ident))
         self.assertEqual(response.status_code,400)
         self.assertEqual(response.json['error'],'Stop controls first.')
@@ -90,19 +90,19 @@ class HailoInspectionTests(unittest.TestCase):
     def test_control_start_guard_rejects_before_any_dac_write(self):
         remote=Remote(FakeBus())
         before=list(remote.bus.writes)
-        with patch('remote_control.operation_guard',side_effect=ValueError('Inspection busy')):
+        with patch('pi_vision.control.remote_control.operation_guard',side_effect=ValueError('Inspection busy')):
             with self.assertRaisesRegex(ValueError,'Inspection busy'):
                 remote.enable()
-        with patch('autonomous.operation_guard',side_effect=ValueError('Inspection busy')), \
-             patch('autonomous.camera_status') as camera:
+        with patch('pi_vision.control.autonomous.operation_guard',side_effect=ValueError('Inspection busy')), \
+             patch('pi_vision.control.autonomous.camera_status') as camera:
             with self.assertRaisesRegex(ValueError,'Inspection busy'):
                 remote.autonomy.start_from_camera('behind')
             camera.assert_not_called()
         self.assertEqual(before,remote.bus.writes)
 
     def test_web_ssh_never_prompts_for_password(self):
-        from pi_ssh import password_for
-        with patch('pi_ssh.credential_store') as store,patch('pi_ssh.getpass.getpass') as prompt:
+        from pi_vision.deployment.pi_ssh import password_for
+        with patch('pi_vision.deployment.pi_ssh.credential_store') as store,patch('pi_vision.deployment.pi_ssh.getpass.getpass') as prompt:
             store.return_value.get_password.return_value=None
             with self.assertRaisesRegex(RuntimeError,'Save the Pi SSH credential'):
                 password_for('unit-test','user',prompt=False)
@@ -116,7 +116,7 @@ class HailoInspectionTests(unittest.TestCase):
                     tiles=1,elapsed_ms=16,inference_ms=14,model_sha256=digest,
                     inspection_job='a'*32,preparation=preparation)
         client=app.test_client()
-        with patch('training_studio.inspect_on_pi',return_value=result):
+        with patch('pi_vision.studio.training_studio.inspect_on_pi',return_value=result):
             response=client.post('/api/predict',json=dict(weights='old/compiled/model.hef',
                 image_id=ident,preparation=preparation))
         self.assertEqual(response.status_code,200,response.json)
@@ -125,14 +125,14 @@ class HailoInspectionTests(unittest.TestCase):
     def test_activation_requires_successful_exact_file_test_and_confirmation(self):
         self.hef('old/compiled/model.hef')
         app,_=self.app()
-        with patch('training_studio.activate_on_pi') as activate:
+        with patch('pi_vision.studio.training_studio.activate_on_pi') as activate:
             response=app.test_client().post('/api/hailo/activate',json=dict(
                 weights='old/compiled/model.hef',sha256='f'*64,confirmed=True))
             self.assertEqual(response.status_code,400)
             activate.assert_not_called()
         client,path,digest,result=self.prepare_tested_model()
         self.assertTrue(result['activation_ready'])
-        with patch('training_studio.activate_on_pi') as activate:
+        with patch('pi_vision.studio.training_studio.activate_on_pi') as activate:
             for confirmed in (False,1,'yes'):
                 response=client.post('/api/hailo/activate',json=dict(
                     weights='old/compiled/model.hef',sha256=digest,confirmed=confirmed))
@@ -142,7 +142,7 @@ class HailoInspectionTests(unittest.TestCase):
     def test_confirmed_activation_passes_server_owned_test_proof(self):
         client,path,digest,_=self.prepare_tested_model()
         result=dict(activated=True,model='new.hef',model_input_shape=[640,640,3],sha256=digest)
-        with patch('training_studio.activate_on_pi',return_value=result) as activate:
+        with patch('pi_vision.studio.training_studio.activate_on_pi',return_value=result) as activate:
             response=client.post('/api/hailo/activate',json=dict(
                 weights='old/compiled/model.hef',sha256=digest,confirmed=True))
         self.assertEqual(response.status_code,200,response.json)
@@ -153,14 +153,14 @@ class HailoInspectionTests(unittest.TestCase):
     def test_changed_hef_and_native_only_test_do_not_allow_activation(self):
         client,path,digest,_=self.prepare_tested_model()
         path.write_bytes(b'replaced-compiled-artifact')
-        with patch('training_studio.activate_on_pi') as activate:
+        with patch('pi_vision.studio.training_studio.activate_on_pi') as activate:
             response=client.post('/api/hailo/activate',json=dict(
                 weights='old/compiled/model.hef',sha256=digest,confirmed=True))
             self.assertEqual(response.status_code,400)
             activate.assert_not_called()
         client,_,digest,result=self.prepare_tested_model(preparation='adaptive')
         self.assertFalse(result['activation_ready'])
-        with patch('training_studio.activate_on_pi') as activate:
+        with patch('pi_vision.studio.training_studio.activate_on_pi') as activate:
             response=client.post('/api/hailo/activate',json=dict(
                 weights='old/compiled/model.hef',sha256=digest,confirmed=True))
             self.assertEqual(response.status_code,400)
@@ -175,7 +175,7 @@ class PiInspectionLifecycleTests(unittest.TestCase):
         folder=self.root/'.hef-inspection'/self.job
         folder.mkdir(parents=True)
         (folder/'request.json').write_text(json.dumps(dict(confidence=.55,preparation='full')))
-        spec=importlib.util.spec_from_file_location('pi_inspection_test',Path(__file__).resolve().parents[1]/'inspect_hailo.py')
+        spec=importlib.util.spec_from_file_location('pi_inspection_test',Path(__file__).resolve().parents[1]/'pi_vision/maintenance/inspect_hailo.py')
         self.module=importlib.util.module_from_spec(spec)
         fcntl=SimpleNamespace(LOCK_EX=2,LOCK_NB=4,flock=MagicMock())
         with patch.dict(sys.modules,{'fcntl':fcntl}):spec.loader.exec_module(self.module)
@@ -188,7 +188,7 @@ class PiInspectionLifecycleTests(unittest.TestCase):
         calls=[]
         def run(command,**kwargs):
             calls.append(command)
-            if any('verify_hailo.py' in part for part in command):
+            if any('pi_vision.maintenance.verify_hailo' in part for part in command):
                 raise subprocess.CalledProcessError(1,command)
         with patch.object(self.module,'preflight'),patch.object(self.module.subprocess,'run',side_effect=run), \
              patch.object(self.module,'read_status',return_value={'ready':True}):

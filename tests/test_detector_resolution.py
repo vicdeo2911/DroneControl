@@ -11,7 +11,7 @@ import onnx
 from onnx import helper, TensorProto
 from PIL import Image
 
-from compile_hailo import calibration_samples, check_stage_input, nms_config, onnx_image_size, main
+from pi_vision.studio.compile_hailo import calibration_samples, check_stage_input, nms_config, onnx_image_size, main
 
 
 class DetectorResolutionTests(unittest.TestCase):
@@ -88,7 +88,7 @@ class DetectorResolutionTests(unittest.TestCase):
         self.assertEqual(json.loads((output / 'model-input.json').read_text())['input_size'], 1920)
 
     def test_cli_can_compile_existing_weights_without_training(self):
-        import train_yolo
+        import pi_vision.studio.train_yolo as train_yolo
         data = self.root / 'data.yaml'
         data.write_text('{}')
         weights = self.root / 'best.pt'
@@ -99,7 +99,7 @@ class DetectorResolutionTests(unittest.TestCase):
         with patch.dict(sys.modules, {'torch': torch, 'ultralytics': ultralytics}), \
              patch.object(sys, 'argv', ['train_yolo.py', 'compile', '--data', str(data),
                  '--model', str(weights), '--imgsz', '960', '--name', 'candidate-960']), \
-             patch('train_yolo.compile_weights') as compile_weights:
+             patch('pi_vision.studio.train_yolo.compile_weights') as compile_weights:
             train_yolo.main()
         compile_weights.assert_called_once_with(weights, data, 'candidate-960', 960)
         ultralytics.YOLO.assert_not_called()

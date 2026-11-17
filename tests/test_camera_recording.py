@@ -12,27 +12,26 @@ from unittest.mock import patch
 
 import cv2
 import numpy as np
-import camera_state
-
-from camera_recording import CameraRecorder
-from training_data import Dataset
-from video_collection import VideoExtraction
-from import_video import extract_video
+import pi_vision.camera.camera_state as camera_state
+from pi_vision.camera.camera_recording import CameraRecorder
+from pi_vision.studio.training_data import Dataset
+from pi_vision.studio.video_collection import VideoExtraction
+from pi_vision.studio.import_video import extract_video
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def fake_camera_app(folder):
     # Import the real camera web API, substituting only hardware-only imports.
-    spec = importlib.util.spec_from_file_location('camera_app_test', ROOT / 'app.py')
+    spec = importlib.util.spec_from_file_location('camera_app_test', ROOT / 'pi_vision/camera/app.py')
     module = importlib.util.module_from_spec(spec)
     with patch.dict(sys.modules, {'libcamera': SimpleNamespace(controls=None),
                                  'picamera2': SimpleNamespace(Picamera2=None),
-                                 'inference': SimpleNamespace(HailoModel=None, hailo_architecture=None),
-                                 'monitoring': SimpleNamespace(SystemMonitor=None)}):
+                                 'pi_vision.camera.inference': SimpleNamespace(HailoModel=None, hailo_architecture=None),
+                                 'pi_vision.camera.monitoring': SimpleNamespace(SystemMonitor=None)}):
         spec.loader.exec_module(module)
     module.ROOT = Path(folder)
-    with patch('camera_state.ROOT', Path(folder)):
+    with patch('pi_vision.camera.camera_state.ROOT', Path(folder)):
         shared = module.LatestFrame(SimpleNamespace(width=160, height=96, camera=0, fps=15))
     # Import camera_state before patch.dict(sys.modules): otherwise its cleanup
     # removes the newly imported module and a later patch targets another copy.
@@ -166,7 +165,7 @@ class CameraRecordingTests(unittest.TestCase):
         metadata = dict(id=ident, state='completed', frames=10, bytes=len(content), frame_times=[[i, i / 5] for i in range(10)])
         dataset = Dataset(self.folder / 'library')
         extraction = VideoExtraction(dataset, 'http://fake-camera')
-        with patch('video_collection.camera_json', return_value=metadata), patch('video_collection.urllib.request.urlopen', side_effect=lambda *a, **k: io.BytesIO(content)):
+        with patch('pi_vision.studio.video_collection.camera_json', return_value=metadata), patch('pi_vision.studio.video_collection.urllib.request.urlopen', side_effect=lambda *a, **k: io.BytesIO(content)):
             extraction.start(ident, 'train', interval=.4)
             extraction.thread.join(timeout=10)
             self.assertEqual(extraction.status()['state'], 'completed', extraction.status())
@@ -193,8 +192,8 @@ class CameraRecordingTests(unittest.TestCase):
             with self.subTest(rate=rate):
                 dataset = Dataset(self.folder / f'library-{rate}')
                 extraction = VideoExtraction(dataset, 'http://fake-camera')
-                with patch('video_collection.camera_json', return_value=metadata), patch(
-                        'video_collection.urllib.request.urlopen', side_effect=lambda *a, **k: io.BytesIO(content)):
+                with patch('pi_vision.studio.video_collection.camera_json', return_value=metadata), patch(
+                        'pi_vision.studio.video_collection.urllib.request.urlopen', side_effect=lambda *a, **k: io.BytesIO(content)):
                     extraction.start('c' * 32, 'train', interval=1 / rate)
                     extraction.thread.join(timeout=10)
                 status = extraction.status()

@@ -10,8 +10,8 @@ import threading
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from control_calibration import Calibration
-from remote_control import Remote, handler_for
+from pi_vision.control.control_calibration import Calibration
+from pi_vision.control.remote_control import Remote, handler_for
 
 PROFILE = dict(throttle_idle=.7, throttle_full=2.8, roll_center=1.6, roll_left=.4, roll_right=3.1)
 
@@ -70,7 +70,7 @@ class RemoteTests(unittest.TestCase):
 
     def test_initialization_uses_calibrated_full(self):
         self.bus.writes.clear()
-        with patch('remote_control.time.sleep'): self.remote._sweep(self.token)
+        with patch('pi_vision.control.remote_control.time.sleep'): self.remote._sweep(self.token)
         volts = [((d[0] | d[1] << 8) >> 1) / 32767 * 5 for _, reg, d in self.bus.writes if reg == 4]
         self.assertLessEqual(max(volts), 2.8)
         self.assertGreater(max(volts), 2.79)
@@ -166,14 +166,14 @@ class RemoteTests(unittest.TestCase):
         def stop_during_pause(_):
             self.remote.stop()
         self.remote.initializing = True
-        with patch('remote_control.time.sleep', side_effect=stop_during_pause):
+        with patch('pi_vision.control.remote_control.time.sleep', side_effect=stop_during_pause):
             self.remote._sweep(self.token)
         self.assertIsNone(self.remote.token)
         self.assertFalse(self.remote.initializing)
         self.assertEqual((self.remote.throttle, self.remote.roll), (.7, 1.6))
 
     def test_timeout_still_stops_after_successful_arming(self):
-        with patch('remote_control.time.sleep'): self.remote._sweep(self.token)
+        with patch('pi_vision.control.remote_control.time.sleep'): self.remote._sweep(self.token)
         self.assertTrue(self.remote.status()['enabled'])
         self.remote.last_seen -= 2
         self.remote.watchdog()

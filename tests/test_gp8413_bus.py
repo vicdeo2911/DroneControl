@@ -5,8 +5,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from gp8413_bus import GP8413Bus
-from remote_control import Remote
+from pi_vision.control.gp8413_bus import GP8413Bus
+from pi_vision.control.remote_control import Remote
 
 
 class GP8413BusTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class GP8413BusTests(unittest.TestCase):
         transport = Mock()
         transport.i2c_rdwr.side_effect = lambda message: events.append(message)
         bus = GP8413Bus(transport, lambda address, data: (address, list(data)))
-        with patch('gp8413_bus.time.sleep', side_effect=lambda delay: events.append(delay)):
+        with patch('pi_vision.control.gp8413_bus.time.sleep', side_effect=lambda delay: events.append(delay)):
             remote = Remote(bus)
             remote._output(0, 1.0)
             remote._output(1, 1.0)

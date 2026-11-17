@@ -8,8 +8,8 @@ import time
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from training_data import Dataset
-from training_studio import create_app
+from pi_vision.studio.training_data import Dataset
+from pi_vision.studio.training_studio import create_app
 from test_training import BOXES
 
 

@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from autonomous import Autonomous
-from remote_control import Remote
-from control_calibration import Calibration
+from pi_vision.control.autonomous import Autonomous
+from pi_vision.control.remote_control import Remote
+from pi_vision.control.control_calibration import Calibration
 from test_remote_control import FakeBus, PROFILE
 
 

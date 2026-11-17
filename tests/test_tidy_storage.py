@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from tidy_storage import apply_local, apply_pi, local_plan, pi_plan, relocate
+from pi_vision.maintenance.tidy_storage import apply_local, apply_pi, local_plan, pi_plan, relocate
 
 
 class StorageTests(unittest.TestCase):

@@ -6,8 +6,8 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
-from camera_modes import choose_sensor_mode
-from camera_state import LatestFrame
+from pi_vision.camera.camera_modes import choose_sensor_mode
+from pi_vision.camera.camera_state import LatestFrame
 
 MODES = [dict(size=(1536, 864), bit_depth=10, fps=120.13, crop_limits=(784,456,3072,1728)),
          dict(size=(2304,1296), bit_depth=10, fps=56.03, crop_limits=(16,24,4608,2592)),
@@ -24,7 +24,7 @@ class CaptureModeTests(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.root = Path(self.directory.name)
-        with patch('camera_state.ROOT', self.root):
+        with patch('pi_vision.camera.camera_state.ROOT', self.root):
             self.shared = LatestFrame(SimpleNamespace(width=960,height=540,fps=15,camera=0))
         self.shared.sensor_modes = MODES
         self.shared.recorder = MagicMock()
@@ -39,7 +39,7 @@ class CaptureModeTests(unittest.TestCase):
         before = dict(self.shared.settings)
         with self.assertRaises(ValueError): self.shared.change_settings(dict(fps=60))
         self.assertEqual(self.shared.settings,before)
-        with patch('camera_state.ROOT',self.root):
+        with patch('pi_vision.camera.camera_state.ROOT',self.root):
             reloaded = LatestFrame(SimpleNamespace(width=960,height=540,fps=15,camera=0))
         self.assertEqual(reloaded.settings['width'],1920)
         self.assertEqual(reloaded.settings['fps'],50)
@@ -50,7 +50,7 @@ class CaptureModeTests(unittest.TestCase):
         self.assertEqual(self.shared.revision,0)
 
     def test_maintenance_guard_rejects_recording_before_reconfiguration(self):
-        with patch('camera_state.operation_guard',side_effect=ValueError('Inspection busy')):
+        with patch('pi_vision.camera.camera_state.operation_guard',side_effect=ValueError('Inspection busy')):
             with self.assertRaisesRegex(ValueError,'Inspection busy'):
                 self.shared.start_recording(dict(seconds=10))
         self.shared.recorder.start.assert_not_called()
