@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Flight deck · Plane remote</title><link rel="stylesheet" href="/remote.css"><script src="/remote.js" defer></script></head>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Flight deck · Plane remote</title><link rel="stylesheet" href="/remote.css"><script src="/camera-preview.js" defer></script><script src="/remote.js" defer></script></head>
 <body data-page="flight"><div class="shell">
 <header><a class="brand" href="/"><span class="brand-mark">↗</span> PLANE<span class="muted"> / REMOTE</span></a><span id="status" class="status" role="status">Connecting</span></header>
 <nav aria-label="Main"><a href="/autonomous">Autonomous</a><a href="/" aria-current="page">Flight deck</a><a href="/joystick">Joystick</a><a href="/calibration">Calibration</a><a href="/flights">Flight logs</a></nav>
@@ -14,4 +14,16 @@
 <section class="card flight-log-card"><div><p class="eyebrow">FLIGHT RECORDER</p><h2>Record every flight.</h2><p class="small">Recording starts when armed and saves to the Pi until controls stop. <span id="recordingStatus" role="status">Connecting</span></p></div><div class="actions"><a id="latestFlight" class="secondary" download hidden>Download latest CSV</a><a href="/flights" class="secondary" title="Opening logs stops this page's controls.">View flight logs</a></div></section>
 <div class="bottom-row"><p id="message" role="status" aria-live="polite">Connecting to your aircraft…</p><div class="actions"><button id="offRemote" class="secondary" disabled>⏻ Off remote</button><button id="stop" class="stop">■ &nbsp; Stop controls</button></div></div>
 <footer><span>PI VISION / FLIGHT DECK</span><span>Connection loss → idle &amp; center</span></footer>
+<section class="card">
+<h2>Camera-guided steering</h2>
+<p>Choose a lateral reference along a clear flight path. Set cruise throttle before switching modes.</p>
+<div class="steering-preview">
+<img id="steeringPreview" alt="Live YOLO flight preview">
+<span id="steeringCrosshair" hidden aria-hidden="true">+</span>
+</div>
+<label>Horizontal reference (%) <input id="steeringX" type="number" min="5" max="95" step="any" value="50"></label>
+<label>Cruise throttle (%) <input id="steeringCruise" type="number" min="0" max="100" step="any" required></label>
+<div class="actions"><button id="steeringManual" class="secondary" type="button">Manual</button><button id="steeringStart" class="primary" type="button" disabled>Use camera steering</button></div>
+<p id="steeringStatus" role="status">Manual · Waiting for YOLO</p>
+</section>
 </main></div></body></html>

@@ -9,6 +9,98 @@ let throttle = 0, roll = 0, pending = {}, chain = Promise.resolve();
 let offPending = false;
 let sensitivityDirty = false;
 const keys = new Set();
+let guided = false, steeringConfig = null, steeringObservation = null;
+let steeringVelocity = 0, steeringConfirmed = 0, steeringFrame = null;
+let steeringCenter = null, steeringGeometry = null;
+let lastGuidedTime = null;
+
+function manualSteering() {
+  if (!guided) return;
+  guided = false;
+  lastGuidedTime = null;
+  roll = 0;
+}
+
+function trackingReady(now = performance.now()) {
+  return steeringConfig && steeringObservation
+    && steeringConfirmed >= steeringConfig.confirm_frames
+    && now - steeringObservation.time <= steeringConfig.frame_timeout * 1000;
+}
+
+function loseSteeringTrack() {
+  steeringObservation = null;
+  steeringConfirmed = 0;
+  if (guided) {
+    manualSteering();
+    message('Tracking lost. Manual control resumed.', true);
+  }
+}
+
+function guidedCommand() {
+  const now = performance.now();
+  if (!trackingReady(now)) {
+    loseSteeringTrack();
+    return;
+  }
+  const c = steeringConfig;
+  const error = Number($('steeringX').value) / 100 - steeringObservation.x;
+  const adjusted = Math.sign(error) * Math.max(0, Math.abs(error) - c.deadband);
+  const limit = Math.min(c.max_roll, state.limits.roll);
+  const desired = Math.max(-limit, Math.min(limit,
+    c.roll_direction * (c.kp * adjusted - c.kd * steeringVelocity)));
+  const dt = Math.min(.2, (now - (lastGuidedTime ?? now)) / 1000);
+  lastGuidedTime = now;
+  roll += Math.max(-c.roll_slew * dt, Math.min(c.roll_slew * dt, desired - roll));
+  const cruise = Number($('steeringCruise').value);
+  throttle += Math.max(-c.throttle_slew * dt, Math.min(c.throttle_slew * dt, cruise - throttle));
+}
+
+function updateSteeringObservation(camera, began) {
+  const [width, height] = camera.frame_size ?? [];
+  const now = performance.now();
+  const age = camera.frame_age_seconds;
+  const geometry = JSON.stringify([width, height, camera.sensor_mode?.size, camera.settings?.zoom]);
+  if (!camera.ready || camera.error || !(width > 0 && height > 0) || !Number.isInteger(camera.frames)
+      || !Number.isFinite(age) || age < 0 || age + (now - began) / 1000 > steeringConfig.frame_timeout) {
+    throw Error('Camera unavailable or stale');
+  }
+  if (steeringGeometry !== geometry || (steeringFrame !== null && camera.frames < steeringFrame)) {
+    steeringFrame = null;
+    steeringConfirmed = 0;
+    steeringObservation = null;
+    if (guided) {
+      manualSteering();
+      message('Camera geometry or stream changed. Manual control resumed.', true);
+    }
+  }
+  steeringGeometry = geometry;
+  if (camera.frames === steeringFrame) return;
+  steeringFrame = camera.frames;
+  const points = (camera.detections ?? []).filter(d => d.label === 'plane'
+    && d.confidence >= steeringConfig.confidence && Array.isArray(d.box) && d.box.length === 4
+    && d.box.every(Number.isFinite)).map(d => d.box).filter(([x1, y1, x2, y2]) =>
+    0 <= x1 && x1 < x2 && x2 <= width && 0 <= y1 && y1 < y2 && y2 <= height);
+  if (points.length !== 1) {
+    loseSteeringTrack();
+    return;
+  }
+  const [x1, y1, x2, y2] = points[0];
+  const center = [(x1 + x2) / (2 * width), (y1 + y2) / (2 * height)];
+  const time = began - age * 1000;
+  const previous = steeringObservation;
+  if (previous && Math.hypot(center[0] - steeringCenter[0], center[1] - steeringCenter[1]) > steeringConfig.association_gate) {
+    loseSteeringTrack();
+    return;
+  }
+  steeringCenter = center;
+  const dt = previous ? (time - previous.time) / 1000 : 0;
+  const continuous = dt > 0 && dt <= steeringConfig.frame_timeout;
+  const x = continuous ? previous.x + steeringConfig.filter_alpha * (center[0] - previous.x) : center[0];
+  steeringVelocity = continuous ? (x - previous.x) / dt : 0;
+  steeringObservation = {x, time};
+  steeringConfirmed = continuous ? steeringConfirmed + 1 : 1;
+}
+
 const offDialog = document.createElement('dialog');
 offDialog.id = 'offDialog';
 offDialog.setAttribute('aria-labelledby', 'offTitle');
@@ -54,6 +146,15 @@ function renderPositions() {
   for (const button of document.querySelectorAll('[data-key]')) button.classList.toggle('active', keys.has(button.dataset.key));
 }
 function render() {
+  if ($('steeringStart')) {
+    const tracking = trackingReady();
+    $('steeringStart').disabled = !active() || !tracking || guided;
+    $('steeringManual').disabled = !guided;
+    $('steeringCruise').disabled = guided;
+    if (state?.limits) $('steeringCruise').max = state.limits.throttle;
+    $('steeringStatus').textContent = (guided ? 'Camera-guided steering' : 'Manual')
+      + (tracking ? ' · YOLO tracking' : ' · Waiting for a clear YOLO detection');
+  }
   const occupied = !!state?.enabled && !token;
   const ready = connected && !!state && !state.error && !offPending;
   if ($('recordingStatus')) {
@@ -134,6 +235,7 @@ function syncRaw(result) {
   pending = {};
 }
 function resetLocal() {
+  manualSteering();
   joystickEngaged = false;
   token = null; starting = false; pending = {}; throttle = 0; roll = 0;
   keys.clear(); generation++;
@@ -180,6 +282,7 @@ async function tick() {
   try {
     if (token) {
       if (joystickPage && active() && !updateJoystick()) return;
+      if (guided) guidedCommand();
       const sent = {...pending};
       const result = await api('control', {token, sequence: seq++,
         throttle: calibrationPage ? (sent.throttle ?? null) : throttle,
@@ -265,11 +368,12 @@ if (calibrationPage) {
   $('arm').onclick = begin;
   for (const id of ['throttle', 'roll']) $(id).addEventListener('input', event => {
     if (!active()) return;
+    manualSteering();
     if (id === 'throttle') throttle = Number(event.target.value);
     else roll = Number(event.target.value);
     renderPositions();
   });
-  $('centerRoll').onclick = () => { roll = 0; keys.delete('KeyA'); keys.delete('KeyD'); renderPositions(); };
+  $('centerRoll').onclick = () => { manualSteering(); roll = 0; keys.delete('KeyA'); keys.delete('KeyD'); renderPositions(); };
   for (const id of ['maxThrottle', 'maxRoll']) $(id).oninput = () => { limitsDirty = true; render(); };
   $('saveLimits').onclick = async () => {
     const g = generation;
@@ -296,7 +400,7 @@ if (calibrationPage) {
     } catch (error) { if (g === generation) message(error.message, true); }
     finally { saving = false; render(); }
   };
-  function keyDown(code) { if (active()) { keys.add(code); steer(); } }
+  function keyDown(code) { if (active()) { manualSteering(); keys.add(code); steer(); } }
   function keyUp(code) { const held = keys.delete(code); if (held) steer(); }
   document.addEventListener('keydown', event => {
     if (joystickPage) return;
@@ -318,7 +422,7 @@ if (calibrationPage) {
   function frame(now) {
     const seconds = Math.min((now - previousFrame) / 1000, .1);
     previousFrame = now;
-    if (active()) {
+    if (active() && !guided) {
       if (joystickPage) {
         updateJoystick();
         requestAnimationFrame(frame);
@@ -364,5 +468,55 @@ window.addEventListener('blur', leave);
 window.addEventListener('plane-joystick-lost', () => {
   if (joystickPage && (token || starting)) stop('Joystick disconnected. Controls stopped.', 'joystick_disconnected');
 });
+if ($('steeringPreview')) {
+  const preview = new LatestCameraPreview($('steeringPreview'), '/camera/preview.jpg');
+  function setReference(value) {
+    $('steeringX').value = Math.max(5, Math.min(95, value));
+    $('steeringCrosshair').style.left = $('steeringX').value + '%';
+    $('steeringCrosshair').hidden = false;
+  }
+  setReference(50);
+  $('steeringPreview').onclick = event => {
+    const rect = $('steeringPreview').getBoundingClientRect();
+    if (rect.width) setReference(100 * (event.clientX - rect.left) / rect.width);
+  };
+  $('steeringX').oninput = () => {
+    if ($('steeringX').value !== '' && $('steeringX').checkValidity()) {
+      setReference(Number($('steeringX').value));
+    } else if (guided) {
+      manualSteering();
+      render();
+    }
+  };
+  $('steeringStart').onclick = () => {
+    if (!active() || !trackingReady() || !$('steeringCruise').reportValidity()
+        || !$('steeringX').reportValidity() || $('steeringX').value === '') return;
+    keys.clear();
+    guided = true;
+    lastGuidedTime = performance.now();
+    render();
+  };
+  $('steeringManual').onclick = () => { manualSteering(); render(); };
+  async function pollSteering() {
+    try {
+      if (!steeringConfig) {
+        const response = await fetch('/api/autonomous', {cache: 'no-store', signal: AbortSignal.timeout(500)});
+        if (!response.ok) throw Error('Steering settings unavailable');
+        steeringConfig = (await response.json()).config;
+      }
+      const began = performance.now();
+      const response = await fetch('/api/autonomous/camera', {cache: 'no-store', signal: AbortSignal.timeout(350)});
+      if (!response.ok) throw Error('Camera unavailable');
+      const camera = await response.json();
+      preview.setRate(camera);
+      updateSteeringObservation(camera, began);
+    } catch {
+      loseSteeringTrack();
+    }
+    setTimeout(pollSteering, 100);
+  }
+  pollSteering();
+  window.addEventListener('pagehide', () => preview.stop());
+}
 render(); inflight = tick();
 setInterval(() => { if (!busy && !saving) inflight = tick(); }, 200);
