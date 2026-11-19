@@ -22,6 +22,9 @@ const labels = {
   confirm_frames: ['Consecutive confirmation frames', 'Required for acquisition and reacquisition.'],
   loss_timeout: ['Detection loss timeout (s)', 'Time since last accepted plane before stop.'],
   frame_timeout: ['Camera freshness limit (s)', 'Stale frame or frozen counter stops flight.'],
+  height_kp: ['Dry-run height gain', 'Throttle percentage points per metre of height error.'],
+  height_kd: ['Dry-run vertical damping', 'Throttle percentage points per metre per second.'],
+  height_max_adjustment: ['Dry-run maximum height correction (pp)', 'Maximum adjustment above or below cruise.'],
   throttle_slew: ['Throttle ramp (pp/s)', 'Normal changes; loss fallback is immediate.'],
   roll_slew: ['Roll ramp (pp/s)', 'Normal changes; loss centers immediately.']
 };
@@ -33,6 +36,12 @@ async function api(path, data) {
 function render(s) {
   $('message').textContent = `${s.source === 'gpio' ? 'GPIO · ' : ''}${s.dry_run ? 'DRY RUN · ' : ''}${s.state}: ${s.reason}`;
   $('telemetry').textContent = `Requested throttle: ${s.command.throttle.toFixed(1)}%\nRequested roll: ${s.command.roll.toFixed(1)}%`;
+  if (s.dry_run && s.height_hold) {
+    const h = s.height_hold;
+    $('telemetry').textContent += h.estimate_m == null
+      ? '\nHeight feedback: waiting for a height estimate'
+      : `\nHeight: ${h.estimate_m.toFixed(2)} m · reference: ${h.reference_m.toFixed(2)} m · correction: ${h.throttle_adjustment.toFixed(1)} pp`;
+  }
   if (s.feedback) $('telemetry').textContent += `\nController: ${s.feedback.loop_hz} Hz / target ${s.config.feedback_hz} Hz\nFresh observations used: ${s.feedback.observation_hz} /s`;
   $('cameraFps').disabled = $('applyCameraFps').disabled = s.active || pending;
   $('start').disabled = s.active || pending; $('save').disabled = s.active || pending;

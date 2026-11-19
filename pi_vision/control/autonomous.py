@@ -22,6 +22,8 @@ PARAMETERS = {
     'filter_alpha': (.4, .05, 1), 'confidence': (.6, .05, 1),
     'association_gate': (.25, .01, 1), 'confirm_frames': (3, 1, 30),
     'loss_timeout': (.7, .1, 3), 'frame_timeout': (.5, .1, 1),
+    'height_kp': (4, 0, 50), 'height_kd': (2, 0, 50),
+    'height_max_adjustment': (10, 0, 30),
     'throttle_slew': (20, 1, 100), 'roll_slew': (40, 1, 200),
 }
 
@@ -41,6 +43,7 @@ class Autonomous:
         self.loop_samples = deque(maxlen=240)
         self.observation_samples = deque(maxlen=240)
         self.frame_age = None
+        self.reset_height()
 
     def validate(self, changes):
         if not isinstance(changes, dict) or changes.keys() - PARAMETERS.keys():
@@ -68,6 +71,9 @@ class Autonomous:
         with self.remote.lock:
             return dict(active=self.active, state=self.state, reason=self.reason,
                         dry_run=self.dry_run, source=self.source, command=dict(self.command), config=dict(self.config),
+                        height_hold=dict(reference_m=self.height_reference,
+                                         estimate_m=self.height_estimate,
+                                         throttle_adjustment=self.height_adjustment),
                         parameters={k: dict(min=v[1], max=v[2]) for k, v in PARAMETERS.items()},
                         feedback=dict(loop_hz=self.measured_rate(self.loop_samples),
                                       observation_hz=self.measured_rate(self.observation_samples),
@@ -129,6 +135,7 @@ class Autonomous:
             self.last_detection = self.filtered_x = self.previous_center = None
             self.frame_geometry = None
             self.confirmed = 0
+            self.reset_height()
             self.command = dict(throttle=0, roll=0)
             self.state, self.reason = 'arming', 'Waiting for arming sweep.'
             return {**self.status(), 'owner': self.owner}
@@ -146,6 +153,7 @@ class Autonomous:
         self.state, self.reason = 'stopped', reason
         self.command = dict(throttle=0, roll=0)
         self.owner = None
+        self.reset_height()
 
     def stop(self, reason):
         self.cancel(reason)
@@ -188,6 +196,39 @@ class Autonomous:
         self.last_detection = now
         self.confirmed += 1
         return self.confirmed >= self.config['confirm_frames']
+
+    def reset_height(self):
+        self.height_reference = None
+        self.clear_height_sample()
+
+    def clear_height_sample(self):
+        self.height_estimate = self.height_sample_time = None
+        self.height_adjustment = 0
+
+    def dry_run_height_throttle(self, info, now, fresh):
+        """Consume a height estimate in metres associated with the current frame."""
+        c = self.config
+        cruise = c['cruise_throttle']
+        if fresh:
+            height = info.get('height_m')
+            if type(height) not in (float, int) or not math.isfinite(height) or not -1000 <= height <= 10000:
+                self.clear_height_sample()
+                return cruise
+            sample_time = now - info['frame_age_seconds']
+            rate = 0
+            if self.height_sample_time is not None:
+                dt = sample_time - self.height_sample_time
+                if .001 <= dt <= c['frame_timeout']:
+                    rate = (height - self.height_estimate) / dt
+            if self.height_reference is None:
+                self.height_reference = height
+            self.height_estimate, self.height_sample_time = height, sample_time
+            correction = c['height_kp'] * (self.height_reference - height) - c['height_kd'] * rate
+            limit = c['height_max_adjustment']
+            self.height_adjustment = max(-min(limit, cruise), min(limit, 100 - cruise, correction))
+        if self.height_sample_time is None or now - self.height_sample_time > c['frame_timeout']:
+            self.clear_height_sample()
+        return cruise + self.height_adjustment
 
     def tick(self, info):
         with self.remote.lock:
@@ -265,11 +306,14 @@ class Autonomous:
                         self.transition('lost', 'Detection lost. Roll centered; fallback throttle.', now)
                     else:
                         throttle = c['cruise_throttle']
+                        if self.dry_run:
+                            throttle = self.dry_run_height_throttle(info, now, fresh)
                         error = c['setpoint_x'] - self.filtered_x
                         error = math.copysign(max(0, abs(error) - c['deadband']), error)
                         roll = c['roll_direction'] * (c['kp'] * error - c['kd'] * self.velocity)
                         roll = max(-c['max_roll'], min(c['max_roll'], roll))
                 if self.state == 'lost':
+                    self.clear_height_sample()
                     throttle, roll = c['lost_throttle'], 0
                     if not seen:
                         return self.stop('Plane detection timeout. Idle and center requested; restart required.')
