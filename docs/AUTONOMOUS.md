@@ -31,18 +31,3 @@ python3 -m pi_vision.control.remote_control --no-web
 Run one controller process. Do not start a second one beside the service.
 
 **Electrical zero is different from calibrated idle.** On inverted throttle wiring, 0 V means full throttle. Verify polarity, calibration and stop behavior with propulsion disconnected before enabling outputs. Deployment and UI checks should leave calibration and `remote-power.json` alone.
-
-## Dry-run height feedback
-
-During tracking, the dry run can consume an optional `height_m` estimate in
-the camera status for the current frame. A replay or calibrated estimator must
-supply that value in metres relative to a consistent datum. The existing YOLO
-camera service does not supply height. Raw bounding-box coordinates do not
-drive throttle.
-
-The first supported tracking sample sets the reference height. The controller
-estimates vertical rate from successive samples, adds a bounded correction
-around cruise throttle, and uses the existing throttle slew limit. Missing or
-stale height estimates return the throttle target to cruise. The Autonomous
-page shows the estimate, reference and correction. The gains are dry-run
-settings. Live tracking continues to use configured cruise throttle.

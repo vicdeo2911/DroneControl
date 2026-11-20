@@ -51,28 +51,6 @@ class AutonomousTests(unittest.TestCase):
         self.assertEqual(self.bus.writes, before)
         self.assertIsNone(self.remote.token)
 
-    def test_dry_run_height_feedback_corrects_both_directions_and_falls_back(self):
-        self.auto.save(dict(height_kp=4, height_kd=0, height_max_adjustment=5))
-        self.track()
-        self.tick(height_m=3)
-        self.assertEqual(self.auto.status()['height_hold']['reference_m'], 3)
-        self.tick(height_m=1)
-        self.assertEqual(self.auto.height_adjustment, 5)
-        self.tick(height_m=5)
-        self.assertEqual(self.auto.height_adjustment, -5)
-        self.tick(height_m=float('nan'))
-        self.assertIsNone(self.auto.height_estimate)
-        self.assertEqual(self.auto.height_adjustment, 0)
-        self.assertEqual(self.auto.height_reference, 3)
-
-    def test_live_tracking_ignores_unvalidated_height_input(self):
-        self.track(live=True)
-        self.tick(height_m=3)
-        self.tick(height_m=1)
-        self.assertIsNone(self.auto.height_reference)
-        self.assertEqual(self.auto.height_adjustment, 0)
-        self.assertEqual(self.auto.command['throttle'], self.auto.config['cruise_throttle'])
-
     def test_launch_behind_without_detection_is_bounded(self):
         self.auto.start('behind')
         self.tick(x=None)
