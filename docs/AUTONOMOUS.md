@@ -10,7 +10,7 @@ Open `http://<pi-address>:8001/autonomous`. The controller runs separately from 
 
 Tune gains, filtering, confidence, confirmations, throttle and limits on the page. Settings persist in `autonomous-settings.json`; calibration and manual control limits are separate.
 
-Steering uses horizontal image position and velocity to compute bounded PD roll commands. It does not control attitude or altitude. Camera FPS, detection FPS, preview FPS and control-loop Hz measure different things; polling a repeated frame does not create a new observation.
+Steering uses horizontal image position and velocity to compute bounded PD roll commands. An optional vertical image-space PD loop adjusts throttle around the cruise setting during tracking. Set **Maximum throttle correction** above zero to enable it. The vertical setpoint is measured from the top of the image, and positive error means the plane appears below it. The page shows vertical error and the bounded throttle correction before the throttle ramp. Image alignment does not measure attitude or altitude. Camera FPS, detection FPS, preview FPS and control-loop Hz measure different things; polling a repeated frame does not create a new observation.
 
 ## Stop behavior
 

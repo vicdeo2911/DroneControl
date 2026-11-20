@@ -1,4 +1,4 @@
-"""Bounded image-space PD steering and a supervised hand-launch state machine."""
+"""Bounded image-space PD control and a supervised hand-launch state machine."""
 import json
 from collections import deque
 import math
@@ -19,6 +19,9 @@ PARAMETERS = {
     'lost_throttle': (0, 0, 100), 'max_roll': (15, 0, 100),
     'kp': (35, 0, 200), 'kd': (8, 0, 100), 'roll_direction': (1, -1, 1),
     'setpoint_x': (.5, .05, .95), 'deadband': (.03, 0, .2),
+    'setpoint_y': (.5, .05, .95), 'vertical_deadband': (.03, 0, .2),
+    'vertical_kp': (35, 0, 200), 'vertical_kd': (8, 0, 100),
+    'max_throttle_correction': (0, 0, 100),
     'filter_alpha': (.4, .05, 1), 'confidence': (.6, .05, 1),
     'association_gate': (.25, .01, 1), 'confirm_frames': (3, 1, 30),
     'loss_timeout': (.7, .1, 3), 'frame_timeout': (.5, .1, 1),
@@ -41,6 +44,7 @@ class Autonomous:
         self.loop_samples = deque(maxlen=240)
         self.observation_samples = deque(maxlen=240)
         self.frame_age = None
+        self.vertical_feedback = None
 
     def validate(self, changes):
         if not isinstance(changes, dict) or changes.keys() - PARAMETERS.keys():
@@ -69,6 +73,7 @@ class Autonomous:
             return dict(active=self.active, state=self.state, reason=self.reason,
                         dry_run=self.dry_run, source=self.source, command=dict(self.command), config=dict(self.config),
                         parameters={k: dict(min=v[1], max=v[2]) for k, v in PARAMETERS.items()},
+                        vertical_feedback=self.vertical_feedback,
                         feedback=dict(loop_hz=self.measured_rate(self.loop_samples),
                                       observation_hz=self.measured_rate(self.observation_samples),
                                       frame_age_ms=round(self.frame_age * 1000, 1) if self.frame_age is not None else None))
@@ -127,6 +132,7 @@ class Autonomous:
             self.frame_age = None
             self.last_new_frame = self.started
             self.last_detection = self.filtered_x = self.previous_center = None
+            self.filtered_y = self.vertical_feedback = None
             self.frame_geometry = None
             self.confirmed = 0
             self.command = dict(throttle=0, roll=0)
@@ -146,6 +152,7 @@ class Autonomous:
         self.state, self.reason = 'stopped', reason
         self.command = dict(throttle=0, roll=0)
         self.owner = None
+        self.vertical_feedback = None
 
     def stop(self, reason):
         self.cancel(reason)
@@ -175,6 +182,7 @@ class Autonomous:
         if point and self.previous_center and math.dist(point, self.previous_center) > self.config['association_gate']:
             point = None
         if point is None:
+            self.filtered_y = None
             self.confirmed = 0
             return False
         self.previous_center = point
@@ -185,6 +193,13 @@ class Autonomous:
             filtered = self.filtered_x + self.config['filter_alpha'] * (point[0] - self.filtered_x)
             self.velocity = (filtered - self.filtered_x) / max(now - self.last_detection, .001)
             self.filtered_x = filtered
+        self.vertical_velocity = 0
+        if self.filtered_y is None:
+            self.filtered_y = point[1]
+        else:
+            filtered_y = self.filtered_y + self.config['filter_alpha'] * (point[1] - self.filtered_y)
+            self.vertical_velocity = (filtered_y - self.filtered_y) / max(now - self.last_detection, .001)
+            self.filtered_y = filtered_y
         self.last_detection = now
         self.confirmed += 1
         return self.confirmed >= self.config['confirm_frames']
@@ -239,6 +254,7 @@ class Autonomous:
                 self.reason = f'Throttle ramp in {max(0, c["launch_delay"] - (now - self.phase_started)):.1f}s; throttle remains idle.'
                 if now - self.phase_started >= c['launch_delay']:
                     self.transition('spooling', 'Ramping launch throttle. Hold for the Launch now cue.', now)
+            self.vertical_feedback = None
             throttle, roll = 0, 0
             if self.state == 'spooling':
                 if self.mode == 'visible' and (self.last_detection is None or now - self.last_detection > c['loss_timeout']):
@@ -265,6 +281,17 @@ class Autonomous:
                         self.transition('lost', 'Detection lost. Roll centered; fallback throttle.', now)
                     else:
                         throttle = c['cruise_throttle']
+                        # Image y increases downward, so a low or falling plane requests more power.
+                        vertical_error = self.filtered_y - c['setpoint_y']
+                        vertical_offset = math.copysign(
+                            max(0, abs(vertical_error) - c['vertical_deadband']), vertical_error)
+                        correction = c['vertical_kp'] * vertical_offset + c['vertical_kd'] * self.vertical_velocity
+                        limit = c['max_throttle_correction']
+                        if limit:
+                            headroom = max(0, self.remote.limits['throttle'] - throttle)
+                            throttle += max(-min(limit, throttle), min(limit, headroom, correction))
+                        self.vertical_feedback = dict(error=vertical_error,
+                                                      throttle_correction=throttle - c['cruise_throttle'])
                         error = c['setpoint_x'] - self.filtered_x
                         error = math.copysign(max(0, abs(error) - c['deadband']), error)
                         roll = c['roll_direction'] * (c['kp'] * error - c['kd'] * self.velocity)

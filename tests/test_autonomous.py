@@ -21,12 +21,12 @@ class AutonomousTests(unittest.TestCase):
                             acquire_timeout=.5, loss_timeout=.3))
         self.frame = 0
 
-    def tick(self, dt=.1, x=.3, **changes):
+    def tick(self, dt=.1, x=.3, y=.22, **changes):
         self.now += dt
         self.auto.last_heartbeat = self.now
         self.frame += 1
         info = dict(ready=True, frames=self.frame, frame_age_seconds=0, frame_size=[1000, 500],
-                    detections=[] if x is None else [dict(label='plane', confidence=.9, box=[x*1000-10, 100, x*1000+10, 120])])
+                    detections=[] if x is None else [dict(label='plane', confidence=.9, box=[x*1000-10, y*500-10, x*1000+10, y*500+10])])
         info.update(changes)
         self.auto.tick(info)
 
@@ -171,6 +171,40 @@ class AutonomousTests(unittest.TestCase):
         self.track()
         self.tick()
         self.assertEqual(self.auto.command['roll'], -3)
+
+    def test_vertical_feedback_is_disabled_by_default(self):
+        self.track()
+        feedback = self.auto.status()['vertical_feedback']
+        self.assertLess(feedback['error'], 0)
+        self.assertEqual(feedback['throttle_correction'], 0)
+
+    def test_vertical_throttle_direction_deadband_and_bounds(self):
+        self.auto.save(dict(setpoint_y=.22, filter_alpha=1, vertical_kp=100,
+                            vertical_kd=0, max_throttle_correction=6, association_gate=.4))
+        self.remote.limits['throttle'] = 32
+        self.auto.save(dict(cruise_throttle=30))
+        self.track()
+        for y, correction in ((.24, 0), (.4, 2), (.1, -6)):
+            self.tick(y=y)
+            self.assertAlmostEqual(self.auto.status()['vertical_feedback']['throttle_correction'], correction)
+        self.tick(x=None)
+        self.assertEqual(self.auto.state, 'lost')
+        self.assertIsNone(self.auto.status()['vertical_feedback'])
+        self.assertEqual(self.auto.command['throttle'], 0)
+
+    def test_vertical_velocity_uses_fresh_frames_and_resets_after_loss(self):
+        self.auto.save(dict(setpoint_y=.22, filter_alpha=1, vertical_kp=0,
+                            vertical_kd=10, max_throttle_correction=10))
+        self.track()
+        self.tick(y=.27)
+        self.assertAlmostEqual(self.auto.status()['vertical_feedback']['throttle_correction'], 5)
+        self.tick(y=.22, frames=self.frame)
+        self.assertAlmostEqual(self.auto.status()['vertical_feedback']['throttle_correction'], 5)
+        self.tick(x=None)
+        self.tick(y=.27)
+        self.tick(y=.27)
+        self.assertEqual(self.auto.state, 'tracking')
+        self.assertEqual(self.auto.status()['vertical_feedback']['throttle_correction'], 0)
 
     def test_settings_persist_but_session_does_not(self):
         with tempfile.TemporaryDirectory() as temporary:

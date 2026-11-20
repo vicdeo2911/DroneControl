@@ -8,7 +8,7 @@ const labels = {
   acquire_timeout: ['Acquisition timeout (s)', 'Wait limit before launch in view / after launch.'],
   max_flight_seconds: ['Session limit (s)', 'Includes arming and countdown.'],
   launch_throttle: ['Launch throttle (%)', 'Absolute calibrated percentage.'],
-  cruise_throttle: ['Cruise throttle (%)', 'Constant while tracking.'],
+  cruise_throttle: ['Cruise throttle (%)', 'Baseline while tracking.'],
   lost_throttle: ['Lost throttle (%)', 'Immediate fallback during brief detection loss.'],
   max_roll: ['Maximum roll (%)', 'Absolute limit in either direction.'],
   kp: ['Proportional gain Kp', 'Roll percentage per image-width error.'],
@@ -16,6 +16,11 @@ const labels = {
   roll_direction: ['Roll direction (+1 or −1)', 'Depends on camera and flight direction; verify experimentally.'],
   setpoint_x: ['Horizontal setpoint (0–1)', 'Fixed image position to steer toward.'],
   deadband: ['Horizontal deadband', 'Fraction of image width.'],
+  setpoint_y: ['Vertical setpoint (0–1)', '0 is the top of the image; 1 is the bottom.'],
+  vertical_deadband: ['Vertical deadband', 'Fraction of image height.'],
+  vertical_kp: ['Vertical proportional gain', 'Throttle adjustment per image-height error.'],
+  vertical_kd: ['Vertical derivative gain', 'Throttle adjustment per image height per second.'],
+  max_throttle_correction: ['Maximum throttle correction (pp)', 'Set to 0 to disable vertical throttle control.'],
   filter_alpha: ['Position filter alpha', 'Larger responds faster; smaller smooths more.'],
   confidence: ['Minimum plane confidence', 'Only label “plane” is used.'],
   association_gate: ['Association gate', 'Maximum center jump as normalized image distance.'],
@@ -34,6 +39,10 @@ function render(s) {
   $('message').textContent = `${s.source === 'gpio' ? 'GPIO · ' : ''}${s.dry_run ? 'DRY RUN · ' : ''}${s.state}: ${s.reason}`;
   $('telemetry').textContent = `Requested throttle: ${s.command.throttle.toFixed(1)}%\nRequested roll: ${s.command.roll.toFixed(1)}%`;
   if (s.feedback) $('telemetry').textContent += `\nController: ${s.feedback.loop_hz} Hz / target ${s.config.feedback_hz} Hz\nFresh observations used: ${s.feedback.observation_hz} /s`;
+  if (s.vertical_feedback) {
+    const {error, throttle_correction} = s.vertical_feedback;
+    $('telemetry').textContent += `\nVertical error: ${(error * 100).toFixed(1)}% of image height\nThrottle correction target: ${throttle_correction.toFixed(1)} pp`;
+  }
   $('cameraFps').disabled = $('applyCameraFps').disabled = s.active || pending;
   $('start').disabled = s.active || pending; $('save').disabled = s.active || pending;
   for (const id of ['mode', 'dry']) $(id).disabled = s.active || pending;
