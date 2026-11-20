@@ -19,7 +19,7 @@ CAMERA_RUNTIME = ('pi_vision/camera/__init__.py', 'app.py',
 )
 HEF_TOOLS = ('pi_vision/maintenance/__init__.py','pi_vision/maintenance/inspect_hailo.py', 'pi_vision/maintenance/activate_hailo.py', 'pi_vision/maintenance/verify_hailo.py')
 CONTROLLER_RUNTIME = ('pi_vision/control/__init__.py', 'remote_control.py',
-    'pi_vision/control/remote_control.py', 'pi_vision/control/autonomous.py', 'pi_vision/control/control_calibration.py', 'pi_vision/control/gp8413_bus.py',
+    'pi_vision/control/remote_control.py', 'pi_vision/control/autonomous.py', 'pi_vision/control/coupled_control.py', 'pi_vision/control/control_calibration.py', 'pi_vision/control/gp8413_bus.py',
     'pi_vision/control/flight_recorder.py', 'pi_vision/control/launch_input.py', 'config/gpio-launch.example.json',
     'pi_vision/control/templates/remote.html', 'pi_vision/control/templates/remote.js', 'pi_vision/control/templates/remote.css',
     'pi_vision/control/templates/autonomous.html', 'pi_vision/control/templates/autonomous.js', 'pi_vision/control/templates/calibration.html',

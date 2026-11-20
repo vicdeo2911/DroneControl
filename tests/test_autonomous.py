@@ -21,12 +21,12 @@ class AutonomousTests(unittest.TestCase):
                             acquire_timeout=.5, loss_timeout=.3))
         self.frame = 0
 
-    def tick(self, dt=.1, x=.3, **changes):
+    def tick(self, dt=.1, x=.3, y=.22, **changes):
         self.now += dt
         self.auto.last_heartbeat = self.now
         self.frame += 1
         info = dict(ready=True, frames=self.frame, frame_age_seconds=0, frame_size=[1000, 500],
-                    detections=[] if x is None else [dict(label='plane', confidence=.9, box=[x*1000-10, 100, x*1000+10, 120])])
+                    detections=[] if x is None else [dict(label='plane', confidence=.9, box=[x*1000-10, y*500-10, x*1000+10, y*500+10])])
         info.update(changes)
         self.auto.tick(info)
 
@@ -171,6 +171,46 @@ class AutonomousTests(unittest.TestCase):
         self.track()
         self.tick()
         self.assertEqual(self.auto.command['roll'], -3)
+
+    def test_method_one_reaches_live_output_limits_and_preserves_loss(self):
+        self.auto.save(dict(tracking_method=1, turn_adjustment=100))
+        self.track(live=True)
+        with patch.object(self.remote, 'update', wraps=self.remote.update) as update:
+            for _ in range(25):
+                self.tick()
+            self.assertEqual(update.call_args.kwargs['throttle'], self.remote.limits['throttle'])
+            self.assertGreater(update.call_args.kwargs['roll'], 0)
+            self.tick(x=None)
+            self.assertEqual(update.call_args.kwargs, dict(throttle=0, roll=0))
+        self.assertEqual(self.auto.state, 'lost')
+
+    def test_method_two_uses_fresh_vertical_samples_and_resets_on_loss(self):
+        self.auto.save(dict(tracking_method=2, vertical_roll_reduction=1))
+        self.track()
+        self.assertAlmostEqual(self.auto.vertical.reference_y, .22)
+        self.assertEqual(self.auto.vertical.boost, 0)
+        for index in range(1, 8):
+            self.tick(y=.22 + index * .035)
+        self.assertGreater(self.auto.vertical.boost, 0)
+        self.assertGreater(self.auto.vertical.reduction, 0)
+        self.assertGreater(self.auto.command['throttle'], self.auto.config['cruise_throttle'])
+        filtered = self.auto.vertical.filtered_y
+        self.tick(y=.2, frames=self.frame)
+        self.assertEqual(self.auto.vertical.filtered_y, filtered)
+        self.tick(x=None)
+        self.assertIsNone(self.auto.vertical.reference_y)
+        self.assertEqual(self.auto.command, dict(throttle=0, roll=0))
+        self.tick(y=.48)
+        self.tick(y=.48)
+        self.assertEqual(self.auto.state, 'tracking')
+        self.assertAlmostEqual(self.auto.vertical.reference_y, .48)
+        self.assertEqual(self.auto.vertical.boost, 0)
+
+    def test_tracking_method_is_an_integer_choice(self):
+        self.assertEqual(self.auto.config['tracking_method'], 0)
+        for method in (-1, 3, 1.5, True):
+            with self.assertRaises(ValueError):
+                self.auto.save(dict(tracking_method=method))
 
     def test_settings_persist_but_session_does_not(self):
         with tempfile.TemporaryDirectory() as temporary:

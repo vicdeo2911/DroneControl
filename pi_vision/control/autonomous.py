@@ -6,12 +6,18 @@ import secrets
 import time
 import urllib.request
 
+from pi_vision.control.coupled_control import (
+    TrackingCommand, TrackingSettings, VerticalSettings, VerticalTrackingController, tracking_step,
+)
 from pi_vision.shared.state_store import save_json
 from pi_vision.shared.camera_operation import operation_guard
 
 
 # value, minimum, maximum; percentages are absolute calibrated control percentages.
 PARAMETERS = {
+    'tracking_method': (0, 0, 2),
+    'turn_adjustment': (10, -100, 100),
+    'vertical_roll_reduction': (0, 0, 1),
     'feedback_hz': (10, 2, 60),
     'launch_delay': (5, 1, 30), 'launch_seconds': (2, .1, 10),
     'acquire_timeout': (5, .2, 15), 'max_flight_seconds': (30, 1, 300),
@@ -50,6 +56,9 @@ class Autonomous:
             value = result[key]
             if type(value) not in (int, float) or not math.isfinite(value) or not low <= value <= high:
                 raise ValueError(f'{key} must be from {low} to {high}.')
+        for key in ('tracking_method', 'vertical_roll_reduction'):
+            if type(result[key]) is not int:
+                raise ValueError(f'{key} must be an integer.')
         if result['roll_direction'] not in (-1, 1) or type(result['confirm_frames']) is not int:
             raise ValueError('Roll direction must be -1 or 1; confirmation frames must be an integer.')
         return result
@@ -127,6 +136,22 @@ class Autonomous:
             self.frame_age = None
             self.last_new_frame = self.started
             self.last_detection = self.filtered_x = self.previous_center = None
+            self.vertical = None
+            self.vertical_sample_time = None
+            if c['tracking_method']:
+                self.tracking_settings = TrackingSettings(
+                    cruise_throttle=c['cruise_throttle'], throttle_limit=self.remote.limits['throttle'],
+                    turn_adjustment=c['turn_adjustment'], setpoint_x=c['setpoint_x'],
+                    deadband=c['deadband'], kp=c['kp'], kd=c['kd'],
+                    roll_direction=c['roll_direction'], max_roll=c['max_roll'],
+                    roll_limit=self.remote.limits['roll'], throttle_slew=c['throttle_slew'],
+                    roll_slew=c['roll_slew'],
+                )
+                if c['tracking_method'] == 2:
+                    self.vertical = VerticalTrackingController(
+                        self.tracking_settings,
+                        VerticalSettings(roll_reduction_enabled=bool(c['vertical_roll_reduction'])),
+                    )
             self.frame_geometry = None
             self.confirmed = 0
             self.command = dict(throttle=0, roll=0)
@@ -239,6 +264,7 @@ class Autonomous:
                 self.reason = f'Throttle ramp in {max(0, c["launch_delay"] - (now - self.phase_started)):.1f}s; throttle remains idle.'
                 if now - self.phase_started >= c['launch_delay']:
                     self.transition('spooling', 'Ramping launch throttle. Hold for the Launch now cue.', now)
+            tracking_command = None
             throttle, roll = 0, 0
             if self.state == 'spooling':
                 if self.mode == 'visible' and (self.last_detection is None or now - self.last_detection > c['loss_timeout']):
@@ -263,6 +289,8 @@ class Autonomous:
                 elif self.state == 'tracking':
                     if self.confirmed == 0 or not seen:
                         self.transition('lost', 'Detection lost. Roll centered; fallback throttle.', now)
+                    elif c['tracking_method']:
+                        tracking_command = self.coupled_tracking_command(now, dt, fresh)
                     else:
                         throttle = c['cruise_throttle']
                         error = c['setpoint_x'] - self.filtered_x
@@ -270,18 +298,43 @@ class Autonomous:
                         roll = c['roll_direction'] * (c['kp'] * error - c['kd'] * self.velocity)
                         roll = max(-c['max_roll'], min(c['max_roll'], roll))
                 if self.state == 'lost':
+                    if self.vertical is not None:
+                        self.vertical.reset()
+                        self.vertical_sample_time = None
                     throttle, roll = c['lost_throttle'], 0
                     if not seen:
                         return self.stop('Plane detection timeout. Idle and center requested; restart required.')
-            for key, desired in (('throttle', throttle), ('roll', roll)):
-                # Loss mitigation acts immediately; regular commands have bounded slew.
-                old = self.command[key]
-                step = c[key + '_slew'] * dt
-                self.command[key] = desired if self.state == 'lost' else old + max(-step, min(step, desired - old))
+            if tracking_command is not None:
+                self.command.update(throttle=tracking_command.throttle, roll=tracking_command.roll)
+            else:
+                for key, desired in (('throttle', throttle), ('roll', roll)):
+                    # Loss mitigation acts immediately; regular commands have bounded slew.
+                    old = self.command[key]
+                    step = c[key + '_slew'] * dt
+                    self.command[key] = desired if self.state == 'lost' else old + max(-step, min(step, desired - old))
             if not self.dry_run:
                 self.sequence += 1
                 self.remote.reason = f'Autonomous {self.state}: {self.reason}'
                 self.remote.update(self.token, self.sequence, **self.command)
+
+    def coupled_tracking_command(self, now, dt, fresh):
+        previous = TrackingCommand(**self.command)
+        if self.vertical is None:
+            return tracking_step(self.filtered_x, self.velocity, dt,
+                                 previous, self.tracking_settings).command
+
+        if (self.vertical_sample_time is not None
+                and now - self.vertical_sample_time > self.vertical.vertical.max_sample_gap):
+            self.vertical.reset()
+            self.vertical_sample_time = None
+        if fresh:
+            y = self.previous_center[1]
+            if self.vertical_sample_time is None:
+                self.vertical.capture_reference(y)
+            else:
+                self.vertical.observe_vertical(y, now - self.vertical_sample_time)
+            self.vertical_sample_time = now
+        return self.vertical.command(self.filtered_x, self.velocity, dt, previous).command
 
 
 def camera_status():

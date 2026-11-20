@@ -1,14 +1,21 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let owner = null, pending = false, populated = false;
+const choices = {
+  tracking_method: ['Baseline (fixed cruise throttle)', 'Method 1 (turn-based throttle)', 'Method 2 (downward-motion boost)'],
+  vertical_roll_reduction: ['Off', 'On']
+};
 const labels = {
+  tracking_method: ['Tracking method', 'Applies after the plane is acquired.'],
+  turn_adjustment: ['Method 1 turn adjustment (pp)', 'Throttle change at maximum steering in either direction.'],
+  vertical_roll_reduction: ['Method 2 steering reduction', 'Reduce steering during sustained downward image motion.'],
   feedback_hz: ['Feedback rate (Hz)', '2–60 updates/s; fresh observations are limited by detection FPS.'],
   launch_delay: ['Launch countdown (s)', 'Idle until the launch cue.'],
   launch_seconds: ['Launch phase (s)', 'Timed launch throttle before acquisition.'],
   acquire_timeout: ['Acquisition timeout (s)', 'Wait limit before launch in view / after launch.'],
   max_flight_seconds: ['Session limit (s)', 'Includes arming and countdown.'],
   launch_throttle: ['Launch throttle (%)', 'Absolute calibrated percentage.'],
-  cruise_throttle: ['Cruise throttle (%)', 'Constant while tracking.'],
+  cruise_throttle: ['Cruise throttle (%)', 'Baseline throttle while tracking.'],
   lost_throttle: ['Lost throttle (%)', 'Immediate fallback during brief detection loss.'],
   max_roll: ['Maximum roll (%)', 'Absolute limit in either direction.'],
   kp: ['Proportional gain Kp', 'Roll percentage per image-width error.'],
@@ -39,20 +46,27 @@ function render(s) {
   for (const id of ['mode', 'dry']) $(id).disabled = s.active || pending;
   if (!populated) {
     for (const [key, value] of Object.entries(s.config)) {
-      const label = document.createElement('label'), input = document.createElement('input'), help = document.createElement('small');
-      label.textContent = labels[key][0]; input.id = key; input.type = 'number'; input.value = value;
-      input.min = s.parameters[key].min; input.max = s.parameters[key].max;
-      input.step = ['confirm_frames', 'roll_direction'].includes(key) ? '1' : 'any';
+      const label = document.createElement('label'), help = document.createElement('small');
+      const input = document.createElement(choices[key] ? 'select' : 'input');
+      label.textContent = labels[key][0]; input.id = key;
+      if (choices[key]) {
+        choices[key].forEach((name, index) => input.add(new Option(name, index)));
+      } else {
+        input.type = 'number';
+        input.min = s.parameters[key].min; input.max = s.parameters[key].max;
+        input.step = ['confirm_frames', 'roll_direction'].includes(key) ? '1' : 'any';
+      }
+      input.value = value;
       help.textContent = labels[key][1]; label.append(input, help); $('parameters').append(label);
     }
     populated = true;
   }
-  for (const input of $('parameters').querySelectorAll('input')) input.disabled = s.active || pending;
+  for (const input of $('parameters').querySelectorAll('input, select')) input.disabled = s.active || pending;
   if (!s.active) owner = null;
 }
 async function action(fn) { try { await fn(); } catch (e) { $('message').textContent = e.message; } }
 $('save').onclick = () => action(async () => {
-  const config = {}; for (const input of $('parameters').querySelectorAll('input')) {
+  const config = {}; for (const input of $('parameters').querySelectorAll('input, select')) {
     if (!input.reportValidity()) return; config[input.id] = Number(input.value);
   }
   render(await api('/api/autonomous/settings', {config})); $('message').textContent = 'Parameters saved.';

@@ -1,4 +1,4 @@
-"""Dry-run prototype for comparing roll-based and vertical-image tracking control.
+"""Tracking control laws and standalone dry-run comparisons.
 
 Run "python coupled_control.py --help" for the comparison options.
 All commands are percentages of calibrated travel.
@@ -158,14 +158,16 @@ class VerticalTrackingController:
         self.reference_y = self.filtered_y = y
 
     def step(self, filtered_x, horizontal_rate, y, dt, previous):
-        """Use None for unreliable y. Full tracking loss belongs to the caller."""
-        if not all(math.isfinite(value) for value in (
-            filtered_x, horizontal_rate, dt, previous.throttle, previous.roll
-        )) or not 0 <= filtered_x <= 1:
-            raise ValueError("invalid horizontal tracking inputs or previous commands")
+        """Update vertical feedback and compute one tracking command."""
+        rate = self.observe_vertical(y, dt)
+        return VerticalTrackingStep(self.command(filtered_x, horizontal_rate, dt, previous),
+                                    self.filtered_y, rate, self.boost, self.reduction)
+
+    def observe_vertical(self, y, dt):
+        """Update from a new sample only. None marks unreliable y."""
         settings = self.vertical
         rate = 0.0
-        if (y is None or not math.isfinite(y) or not 0 <= y <= 1
+        if (y is None or not math.isfinite(y) or not math.isfinite(dt) or not 0 <= y <= 1
                 or dt <= 0 or dt > settings.max_sample_gap):
             self.reset()
         elif self.reference_y is not None:
@@ -191,11 +193,13 @@ class VerticalTrackingController:
             self.reduction = slew(self.reduction, reduction_target,
                                   settings.max_roll_reduction / settings.recovery_seconds, dt)
 
-        tracking = _tracking_step(
+        return rate
+
+    def command(self, filtered_x, horizontal_rate, dt, previous):
+        return _tracking_step(
             filtered_x, horizontal_rate, dt, previous, self.tracking,
             roll_scale=1.0 - self.reduction, throttle_boost=self.boost,
         )
-        return VerticalTrackingStep(tracking, self.filtered_y, rate, self.boost, self.reduction)
 
 
 def dry_run_vertical(fixed):

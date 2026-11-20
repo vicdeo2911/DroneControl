@@ -12,6 +12,16 @@ Tune gains, filtering, confidence, confirmations, throttle and limits on the pag
 
 Steering uses horizontal image position and velocity to compute bounded PD roll commands. It does not control attitude or altitude. Camera FPS, detection FPS, preview FPS and control-loop Hz measure different things; polling a repeated frame does not create a new observation.
 
+## Tracking methods
+
+Select and save **Tracking method** on the autonomous page before starting a session. The saved selection also applies to GPIO starts.
+
+- **Baseline** (default) uses horizontal PD steering and fixed cruise throttle.
+- **Method 1** adjusts throttle in proportion to the magnitude of the steering command. The turn adjustment sets the throttle change in percentage points at maximum steering.
+- **Method 2** captures the vertical image reference on confirmed acquisition. It adds power when the plane appears below the reference and is still moving downward, then fades the boost when those conditions clear. Optionally enable **Method 2 steering reduction** for sustained downward motion. Loss or an excessive sample gap discards the vertical reference, which is captured again from the next confirmed observation.
+
+The methods apply during tracking in dry-run and live sessions. Vertical image motion is measured from the camera view and can change with distance even during level flight.
+
 ## Stop behavior
 
 Lost detection centers roll and requests fallback throttle. A confirmed target can resume tracking within the allowed loss interval. Loss/acquisition timeouts, stale camera data, stopped frame advancement, changed capture geometry or maximum session duration stop the session.
