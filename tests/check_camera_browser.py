@@ -4,6 +4,7 @@ import sys
 import tempfile
 import threading
 import time
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from flask import jsonify
@@ -33,13 +34,17 @@ def main():
         server = make_server('127.0.0.1', 0, app, threaded=True)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         try:
-            with sync_playwright() as p:
+            with patch.object(app.extensions['camera_module'], 'urlopen') as upstream, sync_playwright() as p:
+                upstream.return_value.__enter__.return_value.headers = {
+                    'X-Stationary-Timeout': '0.6', 'X-Noise-Boxes': '[[0.1,0.2,0.3,0.4]]'}
                 browser = p.chromium.launch(channel='msedge', headless=True)
                 page = browser.new_page(viewport={'width': 1440, 'height': 1000})
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(f'http://127.0.0.1:{server.server_port}')
                 page.wait_for_function("!document.querySelector('#apply').disabled")
+                page.locator('#noiseOverlay').get_by_text('Noise', exact=True).wait_for()
+                assert 'Stationary filter on (0.6 s)' in page.locator('#stationaryFilter').inner_text()
                 page.locator('#rate').fill('50')
                 page.locator('#apply').click()
                 page.wait_for_function("document.querySelector('#settings-message').textContent.includes('locked for this test')")

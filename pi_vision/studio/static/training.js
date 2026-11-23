@@ -198,7 +198,7 @@ $('export').onclick = () => run(async () => { const result = await api('/api/exp
 });
 $('train').onclick = () => run(async () => {
   stopPrediction(); const options = {model: $('model').value, device: $('device').value, target: $('target').value, preparation: $('preparation').value};
-  for (const key of ['epochs', 'batch', 'imgsz']) options[key] = Number($(key).value);
+  for (const key of ['epochs', 'batch', 'imgsz', 'workers']) options[key] = Number($(key).value);
   $('train').disabled = true;
   try { await api('/api/train', options, 60000); message('Local training started. You can keep labeling; this run uses its saved dataset snapshot.'); }
   finally { await trainingStatus(); }

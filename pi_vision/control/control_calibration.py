@@ -60,6 +60,14 @@ class Calibration:
     def save(self, path):
         save_json(path, {'version': 2, 'volts': self.points}, indent=2, newline=True)
 
+    def throttle_percent(self, volts):
+        idle = self.points.get('throttle_idle')
+        full = self.points.get('throttle_full')
+        if volts is None or idle is None or full is None:
+            return None
+        percent = 100 * (volts - idle) / (full - idle)
+        return max(0, min(100, percent)) if -1e-9 <= percent <= 100 + 1e-9 else None
+
     def outputs(self, throttle, roll, *, initialization=False, throttle_limit=50, roll_limit=50):
         if not self.complete:
             raise ValueError('Save all five calibration points before normal control.')

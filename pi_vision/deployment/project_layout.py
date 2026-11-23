@@ -21,6 +21,9 @@ HEF_TOOLS = ('pi_vision/maintenance/__init__.py','pi_vision/maintenance/inspect_
 CONTROLLER_RUNTIME = ('pi_vision/control/__init__.py', 'remote_control.py',
     'pi_vision/control/remote_control.py', 'pi_vision/control/autonomous.py', 'pi_vision/control/control_calibration.py', 'pi_vision/control/gp8413_bus.py',
     'pi_vision/control/flight_recorder.py', 'pi_vision/control/launch_input.py', 'config/gpio-launch.example.json',
+    'pi_vision/control/launcher_calibration.py',
+    'scripts/prepare-launcher-pwm.sh', 'services/pi-launcher-pwm.service',
+    'pi_vision/control/templates/launcher.js',
     'pi_vision/control/templates/remote.html', 'pi_vision/control/templates/remote.js', 'pi_vision/control/templates/remote.css',
     'pi_vision/control/templates/autonomous.html', 'pi_vision/control/templates/autonomous.js', 'pi_vision/control/templates/calibration.html',
     'pi_vision/control/templates/joystick.html', 'pi_vision/control/templates/joystick.js', 'pi_vision/control/templates/flights.html', 'pi_vision/control/templates/flights.js',
@@ -38,6 +41,7 @@ RUNTIME_FILES = (
     'camera-settings.json', 'camera-settings.tmp', 'remote-calibration.json', 'remote-calibration.tmp',
     'remote-settings.json', 'remote-settings.tmp', 'remote-power.json', 'remote-power.tmp',
     'autonomous-settings.json', 'autonomous-settings.tmp', 'gpio-launch.json',
+    'launcher-settings.json', 'launcher-settings.tmp',
     '.control.lock', '.camera-operation.lock',
 )
 RUNTIME_DIRECTORIES = ('data', 'runs', 'models', 'logs', 'maintenance', '.venv', '.venv-training',

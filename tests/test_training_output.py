@@ -1,5 +1,7 @@
 from pathlib import Path
 import tempfile
+import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -8,6 +10,37 @@ from pi_vision.studio.training_output import workdir, stop_compiler, export_onnx
 
 
 class TrainingOutputTests(unittest.TestCase):
+    def test_training_cli_passes_workers_to_ultralytics(self):
+        from pi_vision.studio import train_yolo
+        model = MagicMock()
+        fake_torch = SimpleNamespace(__version__='test', cuda=SimpleNamespace(is_available=lambda: False))
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)/'data.yaml'
+            data.write_text('{}')
+            for mode, workers in (('train', 4), ('val', 0)):
+                with patch.dict(sys.modules, {'torch': fake_torch,
+                     'ultralytics': SimpleNamespace(YOLO=MagicMock(return_value=model))}), \
+                     patch.object(sys, 'argv', ['train_yolo', mode, '--data', str(data),
+                         '--model', str(Path(temporary)/'initial.pt'), '--workers', str(workers)]):
+                    train_yolo.main()
+                method = model.train if mode == 'train' else model.val
+                self.assertEqual(method.call_args.kwargs['workers'], workers)
+
+    @patch('pi_vision.studio.training_studio.subprocess.Popen')
+    def test_loader_workers_default_override_and_validation(self, popen):
+        popen.return_value.poll.return_value = None
+        with tempfile.TemporaryDirectory() as temporary:
+            for requested, expected in ((None, 10), (0, 0), (4, 4), (10, 10)):
+                job, dataset = self.job(temporary)
+                job.start(dataset, {} if requested is None else {'workers': requested})
+                command = popen.call_args.args[0]
+                self.assertEqual(command[command.index('--workers')+1], str(expected))
+            for invalid in (-1, 17, True, 2.5, '4'):
+                job, dataset = self.job(temporary)
+                with self.assertRaisesRegex(ValueError, 'workers'):
+                    job.start(dataset, {'workers': invalid})
+                dataset.export.assert_not_called()
+
     @patch('pi_vision.studio.training_studio.subprocess.Popen')
     def test_adaptive_training_and_medium_model_are_explicit_and_size_matched(self, popen):
         popen.return_value.poll.return_value = None

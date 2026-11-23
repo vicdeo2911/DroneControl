@@ -1,0 +1,11 @@
+[Unit]
+Description=Prepare GPIO12 hardware PWM for launcher calibration
+Before=pi-remote.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /home/user/pi-vision/scripts/prepare-launcher-pwm.sh user
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

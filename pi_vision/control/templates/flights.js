@@ -1,6 +1,7 @@
 'use strict';
 (() => {
   const el = id => document.getElementById(id);
+  const inputLabels = {autonomous: 'Autonomous', joystick: 'Joystick', keyboard: 'Keyboard / sliders'};
   let busy = false;
   function duration(seconds) {
     seconds = Math.max(0, Math.floor(seconds));
@@ -24,8 +25,9 @@
       const fragment = document.createDocumentFragment();
       for (const flight of flights) {
         const row = document.createElement('tr');
-        const values = [new Date(flight.started_at).toLocaleString(), flight.source === 'joystick' ? 'Joystick' : 'Keyboard / sliders',
-          duration(flight.duration), flight.samples, flight.ended_at ? flight.end_reason : 'Recording'];
+        const values = [new Date(flight.started_at).toLocaleString(), inputLabels[flight.source] ?? flight.source,
+          duration(flight.duration), flight.samples, flight.plane_detections ?? '—',
+          flight.ended_at ? flight.end_reason : 'Recording'];
         for (const value of values) {
           const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
         }

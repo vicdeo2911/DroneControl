@@ -33,6 +33,10 @@ def main():
                 assert page.locator('#preparation').input_value() == 'full'
                 assert page.locator('#imgsz').input_value() == '640'
                 assert page.locator('#imgsz').is_enabled()
+                assert page.locator('#workers').input_value() == '10'
+                page.locator('#workers').fill('0')
+                assert page.locator('#workers').evaluate('(e) => e.checkValidity()')
+                page.locator('#workers').fill('10')
                 assert page.locator('label[for="recordSeconds"]').count() == 1
                 assert 'Up to 10,000 frames' in page.locator('#recordingPanel').inner_text()
                 assert 'full frames to match current flight inference' in page.locator('body').inner_text()

@@ -15,6 +15,10 @@ Images and annotations live in `data/plane-target/` on the laptop. Pi clips live
 
 Choose starting weights, epochs, batch size and detector input size. Full frames are the default; native crops are an experimental option for small-object detection. Reduce batch size if GPU memory runs out.
 
+**Data loader workers** controls parallel image loading and augmentation. The default is 10, adjustable from 0 to 16. Use 0 to disable multiprocessing if Windows has loader problems. More workers use additional system RAM and can add startup overhead; they do not increase batch size or model input resolution. CLI training/validation accepts `--workers 10` as well. This count does not pin processes to Intel P-cores; the operating system schedules them. The default was increased from 4 at the user's request; performance with 10 has not been benchmarked.
+
+A short RTX 4060 Laptop comparison on 2026-11-19 used YOLOv8s, batch 16, input 640 and the same 25% dataset subset. After the first 10 batches, average batch intervals were 0.312 seconds with 0 workers and 0.216 seconds with 4 workers. First-epoch training time was 17.0 versus 19.9 seconds because worker startup offset the later gain. This supports trying 4 for longer runs; it is not a measured whole-run speedup or accuracy result. Reports/logs are under `test-artifacts/training-workers-20261119/` and `test-artifacts/training-workers-*.log`.
+
 Choose **YOLO** for standard weights or **YOLO + Hailo** to also export ONNX and compile a HEF. Compilation requires representative calibration images and the configured `pi-vision-hailo-compiler` Docker container.
 
 Outputs live under `runs/plane-target/<run>/`:

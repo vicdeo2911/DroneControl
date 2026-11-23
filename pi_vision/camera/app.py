@@ -16,6 +16,7 @@ import signal
 import subprocess
 import threading
 import time
+from urllib.request import urlopen
 
 import cv2
 from flask import Flask, Response, jsonify, render_template, request, send_file
@@ -472,9 +473,19 @@ def create_app(shared):
                 shared.condition.wait_for(lambda: shared.preview_sequence != after or shared.stop.is_set(), timeout=2)
             if not shared.status()['ready'] or shared.jpeg is None or time.monotonic() - shared.preview_time > 5:
                 return Response('Camera is not ready\n', status=503)
-            return Response(shared.jpeg, mimetype='image/jpeg',
-                            headers={'X-Frame-Sequence': str(shared.preview_sequence),
-                                     'X-Frame-Age': str(time.monotonic() - shared.preview_time)})
+            jpeg, sequence = shared.jpeg, shared.preview_sequence
+            headers = {'X-Frame-Sequence': str(sequence),
+                       'X-Frame-Age': str(time.monotonic() - shared.preview_time)}
+        if request.args.get('noise') == '1':
+            try:
+                url = f'http://127.0.0.1:8001/api/autonomous/preview-noise?frame={sequence}'
+                with urlopen(url, timeout=.15) as result:
+                    for key in ('X-Stationary-Timeout', 'X-Noise-Boxes'):
+                        if key in result.headers:
+                            headers[key] = result.headers[key]
+            except OSError:
+                pass  # The camera preview also works without the optional controller service.
+        return Response(jpeg, mimetype='image/jpeg', headers=headers)
 
     @app.get('/raw.jpg')
     def raw_snapshot():

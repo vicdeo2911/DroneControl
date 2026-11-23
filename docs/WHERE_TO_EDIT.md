@@ -9,6 +9,7 @@ Paths below are relative to `pi_vision/`. Each application keeps its pages and s
 | Detection and video recording | `camera/inference.py`, `camera/camera_recording.py` |
 | Controls pages | [control/templates/](../pi_vision/control/templates): `remote.*`, `autonomous.*`, `joystick.*`, `flights.*`, `calibration.html` |
 | Control API and hardware | [control/remote_control.py](../pi_vision/control/remote_control.py), `control/control_calibration.py`, `control/gp8413_bus.py`, `control/launch_input.py` |
+| Launcher servo calibration | `control/templates/calibration.html`, `control/templates/launcher.js`, `control/launcher_calibration.py` |
 | Autonomous steering | [control/autonomous.py](../pi_vision/control/autonomous.py) |
 | Training page | [studio/templates/training.html](../pi_vision/studio/templates/training.html), [studio/static/training.js](../pi_vision/studio/static/training.js) |
 | Studio API, datasets and imports | `studio/training_studio.py`, `studio/training_data.py`, `studio/import_video.py`, `studio/video_collection.py` |

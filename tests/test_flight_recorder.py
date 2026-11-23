@@ -78,6 +78,46 @@ class FlightLogTests(unittest.TestCase):
         self.assertFalse(self.recorder.status()['recording'])
         self.assertEqual(self.rows(flight_id)[-1]['throttle_percent'], '25.0')
 
+    def test_autonomous_flight_counts_plane_boxes_once_per_observed_frame(self):
+        auto = self.remote.autonomy
+        now = 100.
+        auto.clock = lambda: now
+        auto.save(dict(launch_delay=1, launcher_release_delay=0, stationary_timeout=0))
+        plane = dict(label='plane', confidence=.9, box=[10, 10, 20, 20])
+        other_plane = dict(plane, box=[25, 10, 35, 20])
+        frame = dict(ready=True, frames=1, frame_age_seconds=0, frame_size=[100, 100],
+                     detections=[plane, other_plane, dict(plane, label='target'),
+                                 dict(plane, confidence=.1), dict(plane, box=[0, 0, 200, 200])])
+        with patch('pi_vision.control.autonomous.prepare_launch', return_value=2600), \
+                patch('pi_vision.control.autonomous.release_launcher'), \
+                patch.object(self.remote, 'initialize'):
+            auto.start('behind', dry_run=False, source='gpio')
+            first_id = self.recorder.latest_id
+            for frames in range(1, 40):
+                now += .1
+                auto.tick(dict(frame, frames=frames))
+                if auto.state == 'launch':
+                    break
+            self.assertEqual(auto.state, 'launch')
+            self.assertEqual(auto.plane_detections, 0)
+            now += .1
+            post_release = dict(frame, frames=frames+1)
+            auto.tick(post_release)
+            auto.tick(post_release)
+            now += .1
+            auto.tick(dict(frame, frames=frames+2, detections=[plane]))
+            self.assertEqual(auto.status()['plane_detections'], 3)
+            self.remote.stop()
+            auto.start('behind', dry_run=False)
+            self.assertEqual(auto.status()['plane_detections'], 0)
+            self.remote.stop()
+        self.remote.enable()
+        self.remote.stop()
+        self.recorder.flush()
+        self.assertEqual([row['plane_detections'] for row in self.recorder.list_flights()], [None, 0, 3])
+        details = json.loads(self.recorder.download(first_id, 'json'))
+        self.assertEqual(details['plane_detections'], 3)
+
     def test_watchdog_finishes_and_rejected_commands_do_not_get_logged(self):
         token = self.remote.enable()['token']
         with self.assertRaises(ValueError):

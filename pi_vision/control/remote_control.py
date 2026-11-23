@@ -340,6 +340,16 @@ class Remote:
 
 def handler_for(remote):
     class Handler(BaseHTTPRequestHandler):
+        def noise_headers(self, sequence):
+            with remote.lock:
+                timeout = remote.autonomy.config['stationary_timeout']
+                noise = remote.autonomy.preview_noise(sequence)
+            headers = {'X-Stationary-Timeout': str(timeout)}
+            if noise:
+                headers['X-Noise-Boxes'] = json.dumps(
+                    [[round(value, 5) for value in box] for box in noise[:100]], separators=(',', ':'))
+            return headers
+
         # Keep snapshot requests on one connection instead of reconnecting per frame.
         protocol_version = 'HTTP/1.1'
         disable_nagle_algorithm = True
@@ -359,6 +369,8 @@ def handler_for(remote):
 
         def do_GET(self):
             parsed = urllib.parse.urlsplit(self.path)
+            if parsed.path == '/launcher':
+                return self.send_content(b'', 'text/plain', 302, {'Location': '/calibration#launcher'})
             if parsed.path == '/api/autonomous/camera':
                 try:
                     return self.reply(camera_status())
@@ -375,13 +387,27 @@ def handler_for(remote):
                         if len(body) > 4_000_000 or not response.headers.get('Content-Type', '').startswith('image/jpeg'):
                             raise ValueError('Invalid preview image.')
                         headers = {key: response.headers[key] for key in ('X-Frame-Sequence', 'X-Frame-Age') if key in response.headers}
+                    sequence = headers.get('X-Frame-Sequence', '')
+                    if sequence.isdecimal():
+                        headers.update(self.noise_headers(int(sequence)))
                     return self.send_content(body, 'image/jpeg', headers=headers)
                 except (OSError, ValueError):
                     return self.reply({'error': 'Camera preview unavailable.'}, 503)
+            if parsed.path == '/api/autonomous/preview-noise':
+                sequence = urllib.parse.parse_qs(parsed.query).get('frame', [''])[0]
+                if not re.fullmatch(r'\d{1,16}', sequence):
+                    return self.reply({'error': 'Invalid frame sequence.'}, 400)
+                return self.send_content(b'', 'text/plain', 204, self.noise_headers(int(sequence)))
             if self.path == '/api/autonomous':
                 return self.reply(remote.autonomy.status())
             if self.path == '/api/status':
                 return self.reply(remote.status())
+            if self.path == '/api/launcher':
+                from pi_vision.control.launcher_calibration import positions
+                try:
+                    return self.reply(positions(remote))
+                except (OSError, ValueError) as exc:
+                    return self.reply({'error': str(exc)}, 400)
             if self.path == '/api/flights':
                 return self.reply(dict(flights=remote.recorder.list_flights() if remote.recorder else [],
                                        recorder=remote.status()['flight_log']))
@@ -402,6 +428,7 @@ def handler_for(remote):
                 '/camera-preview.js': ('camera-preview.js', 'text/javascript; charset=utf-8'),
                 '/': ('remote.html', 'text/html; charset=utf-8'),
                 '/calibration': ('calibration.html', 'text/html; charset=utf-8'),
+                '/launcher.js': ('launcher.js', 'text/javascript; charset=utf-8'),
                 '/joystick': ('joystick.html', 'text/html; charset=utf-8'),
                 '/joystick.js': ('joystick.js', 'text/javascript; charset=utf-8'),
                 '/flights': ('flights.html', 'text/html; charset=utf-8'),
@@ -453,6 +480,18 @@ def handler_for(remote):
                     result = remote.stop(reasons[reason])
                 elif self.path == '/api/autonomous/settings':
                     result = remote.autonomy.save(data.get('config'))
+                elif self.path in ('/api/launcher/jog', '/api/launcher/save', '/api/launcher/stop', '/api/launcher/reload'):
+                    if origin != 'http://' + host:
+                        return self.reply({'error': 'Open Launcher calibration on the plane remote.'}, 403)
+                    from pi_vision.control.launcher_calibration import jog, save_position, stop_signal, reload_launcher
+                    if self.path.endswith('/reload'):
+                        result = reload_launcher(remote)
+                    elif self.path.endswith('/stop'):
+                        result = stop_signal(remote)
+                    elif self.path.endswith('/save'):
+                        result = save_position(remote, data)
+                    else:
+                        result = jog(remote, data)
                 elif self.path == '/api/autonomous/camera':
                     with remote.lock:
                         if remote.token or remote.autonomy.active:
@@ -471,7 +510,9 @@ def handler_for(remote):
                             raise ValueError('Camera unavailable.') from exc
                 elif self.path == '/api/autonomous/start':
                     # HTTP clients always use browser supervision; source is never client-selectable.
-                    result = remote.autonomy.start_from_camera(data.get('mode'), data.get('dry_run', True), data.get('restore_outputs', False))
+                    result = remote.autonomy.start_from_camera(
+                        data.get('mode'), data.get('dry_run', True), data.get('restore_outputs', False),
+                        test_target_x=data.get('test_target_x'), predict_gaps=data.get('predict_gaps', False))
                 elif self.path == '/api/autonomous/heartbeat':
                     result = remote.autonomy.heartbeat(data.get('owner'))
                 elif self.path == '/api/enable':

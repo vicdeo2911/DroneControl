@@ -65,6 +65,24 @@ class CameraRecordingTests(unittest.TestCase):
         self.shared.preview_time = time.monotonic() - 6
         self.assertEqual(self.client.get('/raw.jpg').status_code, 503)
 
+    def test_live_view_requests_noise_for_the_encoded_frame_only(self):
+        self.shared.sequence = 50
+        self.shared.preview_sequence = 4
+        module = self.app.extensions['camera_module']
+        with patch.object(module, 'urlopen') as upstream:
+            upstream.return_value.__enter__.return_value.headers = {
+                'X-Stationary-Timeout': '0.6', 'X-Noise-Boxes': '[[0.1,0.2,0.3,0.4]]'}
+            self.client.get('/snapshot.jpg')
+            upstream.assert_not_called()
+            response = self.client.get('/snapshot.jpg?noise=1')
+            upstream.assert_called_once_with('http://127.0.0.1:8001/api/autonomous/preview-noise?frame=4', timeout=.15)
+            self.assertEqual(response.headers['X-Stationary-Timeout'], '0.6')
+            self.assertEqual(json.loads(response.headers['X-Noise-Boxes']), [[.1, .2, .3, .4]])
+            upstream.side_effect = OSError
+            response = self.client.get('/snapshot.jpg?noise=1')
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn('X-Noise-Boxes', response.headers)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.folder = Path(self.temp.name)

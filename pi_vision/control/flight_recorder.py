@@ -31,6 +31,7 @@ class FlightRecorder:
         self.latest_id = None
         self.started = None
         self.samples = 0
+        self.plane_detections = None
         self.thread = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +41,8 @@ class FlightRecorder:
                     CREATE TABLE IF NOT EXISTS flights (
                         id TEXT PRIMARY KEY, started_at TEXT NOT NULL,
                         ended_at TEXT, source TEXT NOT NULL, duration REAL DEFAULT 0,
-                        samples INTEGER DEFAULT 0, end_reason TEXT, settings TEXT NOT NULL
+                        samples INTEGER DEFAULT 0, end_reason TEXT, settings TEXT NOT NULL,
+                        plane_detections INTEGER
                     );
                     CREATE TABLE IF NOT EXISTS samples (
                         sample_id INTEGER PRIMARY KEY, flight_id TEXT NOT NULL,
@@ -51,6 +53,8 @@ class FlightRecorder:
                     );
                     CREATE INDEX IF NOT EXISTS sample_flight ON samples(flight_id, sample_id);
                 ''')
+                if 'plane_detections' not in {row['name'] for row in db.execute('PRAGMA table_info(flights)')}:
+                    db.execute('ALTER TABLE flights ADD COLUMN plane_detections INTEGER')
                 # A hard service/power interruption has no opportunity to write a stop event.
                 db.execute('''UPDATE flights SET ended_at=COALESCE(
                     (SELECT timestamp_utc FROM samples WHERE flight_id=flights.id
@@ -87,12 +91,19 @@ class FlightRecorder:
                 return None
             flight_id = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S') + '-' + secrets.token_hex(4)
             started_at = utc_now()
-            if not self._enqueue(('begin', (flight_id, started_at, source, json.dumps(settings)))):
+            plane_detections = 0 if source == 'autonomous' else None
+            if not self._enqueue(('begin', (flight_id, started_at, source, json.dumps(settings), plane_detections))):
                 return None
             self.active_id = self.latest_id = flight_id
             self.started = time.monotonic()
             self.samples = 0
+            self.plane_detections = plane_detections
             return flight_id
+
+    def update_plane_detections(self, total):
+        with self.lock:
+            if self.active_id and self.plane_detections is not None:
+                self.plane_detections = total
 
     def record(self, event, values, finish=False):
         with self.lock:
@@ -101,7 +112,7 @@ class FlightRecorder:
             row = dict(timestamp_utc=utc_now(), elapsed_seconds=round(time.monotonic() - self.started, 6),
                        event=event, **values)
             data = tuple(row.get(name) for name in self.COLUMNS)
-            if self._enqueue(('sample', (self.active_id, data, finish))):
+            if self._enqueue(('sample', (self.active_id, data, finish, self.plane_detections))):
                 self.samples += 1
             if finish:
                 self.active_id = None
@@ -127,14 +138,16 @@ class FlightRecorder:
                     kind, values = item
                     with db:
                         if kind == 'begin':
-                            db.execute('INSERT INTO flights(id, started_at, source, settings) VALUES (?, ?, ?, ?)', values)
+                            db.execute('''INSERT INTO flights(id, started_at, source, settings, plane_detections)
+                                VALUES (?, ?, ?, ?, ?)''', values)
                         else:
-                            flight_id, data, finish = values
+                            flight_id, data, finish, plane_detections = values
                             columns = ', '.join(self.COLUMNS)
                             placeholders = ', '.join('?' for _ in self.COLUMNS)
                             db.execute(f'INSERT INTO samples(flight_id, {columns}) VALUES (?, {placeholders})',
                                        (flight_id, *data))
-                            db.execute('UPDATE flights SET samples=samples+1, duration=? WHERE id=?', (data[1], flight_id))
+                            db.execute('''UPDATE flights SET samples=samples+1, duration=?, plane_detections=?
+                                WHERE id=?''', (data[1], plane_detections, flight_id))
                             if finish:
                                 db.execute('UPDATE flights SET ended_at=?, end_reason=? WHERE id=?',
                                            (data[0], data[8], flight_id))
@@ -163,7 +176,7 @@ class FlightRecorder:
             return []
         try:
             with closing(self._connect()) as db:
-                rows = db.execute('''SELECT id, started_at, ended_at, source, duration, samples, end_reason
+                rows = db.execute('''SELECT id, started_at, ended_at, source, duration, samples, end_reason, plane_detections
                     FROM flights ORDER BY started_at DESC, rowid DESC LIMIT 100''').fetchall()
             return [dict(row) for row in rows]
         except sqlite3.Error as exc:

@@ -2,8 +2,9 @@
 // Fetch only the latest frame with one outstanding request. Slow browsers skip
 // frames rather than building a video queue that delays the flight preview.
 window.LatestCameraPreview = class {
-  constructor(image, path, onStats = () => {}) {
+  constructor(image, path, onStats = () => {}, onFrame = () => {}) {
     this.image = image; this.path = path; this.onStats = onStats;
+    this.onFrame = onFrame;
     this.fps = 15; this.sequence = -1; this.url = null; this.frames = 0;
     this.previewLimit = 15;
     this.started = performance.now(); this.running = true;
@@ -21,7 +22,8 @@ window.LatestCameraPreview = class {
     const began = performance.now(); let nextUrl = null;
     if (!document.hidden) {
       try {
-        const response = await fetch(`${this.path}?after=${this.sequence}`, {
+        const separator = this.path.includes('?') ? '&' : '?';
+        const response = await fetch(`${this.path}${separator}after=${this.sequence}`, {
           cache: 'no-store', signal: AbortSignal.timeout(3500)});
         if (!response.ok) throw Error('Camera preview unavailable');
         const sequence = Number(response.headers.get('X-Frame-Sequence'));
@@ -36,6 +38,7 @@ window.LatestCameraPreview = class {
         this.url = nextUrl; nextUrl = null;
         if (sequence !== this.sequence) this.frames++;
         this.sequence = sequence;
+        this.onFrame(response.headers);
         const elapsed = performance.now() - this.started;
         if (elapsed >= 1000) {
           this.onStats({ready: true, fps: this.frames * 1000 / elapsed,
@@ -44,6 +47,7 @@ window.LatestCameraPreview = class {
         }
       } catch (error) {
         if (nextUrl) URL.revokeObjectURL(nextUrl);
+        this.onFrame(null);
         this.onStats({ready: false, error: error.message});
         this.frames = 0; this.started = performance.now();
       }
@@ -56,5 +60,27 @@ window.LatestCameraPreview = class {
     this.running = false; clearTimeout(this.timer);
     this.image.removeAttribute('src');
     if (this.url) { URL.revokeObjectURL(this.url); this.url = null; }
+  }
+
+  static showNoise(overlay, image, boxes) {
+    overlay.replaceChildren();
+    if (!boxes.length || !image.naturalWidth || !image.naturalHeight) return;
+    const rect = image.getBoundingClientRect(), origin = overlay.getBoundingClientRect();
+    const scale = Math.min(rect.width / image.naturalWidth, rect.height / image.naturalHeight);
+    const width = image.naturalWidth * scale, height = image.naturalHeight * scale;
+    const left = rect.left - origin.left + (rect.width - width) / 2;
+    const top = rect.top - origin.top + (rect.height - height) / 2;
+    for (const [x1, y1, x2, y2] of boxes) {
+      const box = document.createElement('div');
+      box.className = 'noise-box';
+      box.style.left = `${left + x1 * width}px`;
+      box.style.top = `${top + y1 * height}px`;
+      box.style.width = `${(x2 - x1) * width}px`;
+      box.style.height = `${(y2 - y1) * height}px`;
+      const label = document.createElement('span');
+      label.textContent = 'Noise';
+      box.append(label);
+      overlay.append(box);
+    }
   }
 };

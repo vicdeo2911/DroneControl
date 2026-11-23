@@ -13,6 +13,8 @@ def main():
     parser.add_argument('--model', default='yolov8s.pt')
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch', type=int, default=8)
+    parser.add_argument('--workers', type=int, default=10,
+                        help='Parallel data loaders (0 disables multiprocessing; default: 10).')
     parser.add_argument('--imgsz', type=int, default=640)
     parser.add_argument('--device', default='auto')
     parser.add_argument('--project', default='runs/plane-target')
@@ -20,6 +22,8 @@ def main():
     parser.add_argument('--target', choices=['yolo', 'hailo'], default='yolo',
                         help='Keep standard best.pt or additionally compile a Hailo-8 HEF.')
     args = parser.parse_args()
+    if not 0 <= args.workers <= 16:
+        parser.error('Workers must be a whole number from 0 to 16.')
     import torch
     from ultralytics import YOLO
     device = ('0' if torch.cuda.is_available() else 'cpu') if args.device == 'auto' else args.device
@@ -42,14 +46,14 @@ def main():
     model = YOLO(str(model_path))
     if args.mode == 'train':
         model.train(data=str(args.data.resolve()), epochs=args.epochs, batch=args.batch,
-                    imgsz=args.imgsz, device=device, workers=0, seed=42, deterministic=True,
+                    imgsz=args.imgsz, device=device, workers=args.workers, seed=42, deterministic=True,
                     project=args.project, name=args.name, exist_ok=False, patience=25, close_mosaic=10)
         best = Path(model.trainer.best)
         print('Standard YOLO weights ready: ' + str(best), flush=True)
         if args.target == 'hailo':
             compile_weights(best, args.data, args.name, args.imgsz)
     elif args.mode in ('val', 'test'):
-        model.val(data=str(args.data.resolve()), split=args.mode, device=device, imgsz=args.imgsz, workers=0)
+        model.val(data=str(args.data.resolve()), split=args.mode, device=device, imgsz=args.imgsz, workers=args.workers)
     else:
         export_onnx(model, args.imgsz)
 

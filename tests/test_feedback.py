@@ -58,13 +58,22 @@ class FeedbackTests(unittest.TestCase):
         response.__enter__.return_value = response
         response.headers = {'Content-Type': 'image/jpeg', 'X-Frame-Sequence': '12', 'X-Frame-Age': '0.06'}
         response.read.return_value = b'jpeg'
+        self.remote.autonomy.noise_frames.append((11, ((.5, .5, .6, .6),)))
+        self.remote.autonomy.noise_frames.append((12, ((.1, .2, .3, .4),)))
         before = list(self.remote.bus.writes)
         with patch('pi_vision.control.remote_control.urllib.request.urlopen', return_value=response) as upstream:
             with urlopen(self.base + '/camera/preview.jpg?after=11', timeout=2) as result:
                 self.assertEqual(result.read(), b'jpeg')
                 self.assertEqual(result.headers['X-Frame-Sequence'], '12')
                 self.assertEqual(result.headers['X-Frame-Age'], '0.06')
+                self.assertEqual(json.loads(result.headers['X-Noise-Boxes']), [[.1, .2, .3, .4]])
         self.assertEqual(upstream.call_args.args[0], 'http://127.0.0.1:8000/snapshot.jpg?after=11')
+        with urlopen(self.base + '/api/autonomous/preview-noise?frame=12', timeout=2) as result:
+            self.assertEqual(result.status, 204)
+            self.assertEqual(result.headers['X-Stationary-Timeout'], '0.6')
+            self.assertEqual(json.loads(result.headers['X-Noise-Boxes']), [[.1, .2, .3, .4]])
+        with urlopen(self.base + '/api/autonomous/preview-noise?frame=13', timeout=2) as result:
+            self.assertNotIn('X-Noise-Boxes', result.headers)
         self.assertEqual(before, self.remote.bus.writes)
 
     def test_web_start_cannot_disable_its_heartbeat_by_claiming_gpio_source(self):

@@ -60,7 +60,8 @@ class TrainingJob:
             if self.status()['active']:
                 raise ValueError('Training is already running.')
             numbers = {}
-            for key, low, high, default in [('epochs', 1, 1000, 100), ('batch', 1, 64, 8), ('imgsz', 320, 1920, 640)]:
+            for key, low, high, default in [('epochs', 1, 1000, 100), ('batch', 1, 64, 8),
+                                             ('imgsz', 320, 1920, 640), ('workers', 0, 16, 10)]:
                 value = options.get(key, default)
                 if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
                     raise ValueError(f'{key} must be a whole number from {low} to {high}.')

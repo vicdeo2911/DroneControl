@@ -11,8 +11,11 @@
     h1 {font-size:28px;letter-spacing:-.8px;margin:0 0 6px} p {margin:0;color:#95a6b9;line-height:1.6}
     .badge {border:1px solid #384758;border-radius:30px;padding:7px 14px;font-size:13px;white-space:nowrap}
     .live {color:#74e6a4;border-color:#286243}
-    .video {background:#05080c;border:1px solid #2b3848;border-radius:16px;overflow:hidden;aspect-ratio:16/9}
+    .video {position:relative;background:#05080c;border:1px solid #2b3848;border-radius:16px;overflow:hidden;aspect-ratio:16/9}
     .video img {width:100%;height:100%;object-fit:contain;display:block}
+    #noiseOverlay {position:absolute;inset:0;pointer-events:none}
+    .noise-box {position:absolute;box-sizing:border-box;border:2px dashed #ffbd73}
+    .noise-box span {position:absolute;top:0;left:0;padding:2px 5px;background:#ffbd73;color:#271b11;font:700 12px/1.2 system-ui}
     .stats {display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:20px 0}
     .stat,.panel {background:#19212c;border:1px solid #2b3848;border-radius:12px;padding:18px}
     .label {color:#95a6b9;font-size:12px;letter-spacing:1px;text-transform:uppercase}
@@ -36,7 +39,8 @@
 <body>
   <header><div><h1>Pi Vision</h1><p>Live object detection · Raspberry Pi 5 + AI HAT+</p></div><span id="state" class="badge">Connecting…</span></header>
   <!-- /stream.mjpg is also available for MJPEG clients. The page pulls fresh snapshots to avoid a network backlog. -->
-  <div class="video"><img id="video" src="/snapshot.jpg" alt="Live camera view with YOLO detection boxes"></div>
+  <div class="video"><img id="video" src="/snapshot.jpg" alt="Live camera view with YOLO detection boxes"><div id="noiseOverlay" aria-hidden="true"></div></div>
+  <p id="stationaryFilter" class="hint">Checking stationary filter&hellip;</p>
   <section class="panel" aria-label="Live camera controls">
     <div class="control-grid">
       <div><label class="control-label" for="rate">Target camera rate <output id="rate-value" for="rate">15 fps</output></label><input id="rate" type="range" min="1" max="60" step="1" value="15" disabled><div class="hint">1–60 fps. Actual rate depends on the scene and processing load.</div></div>
@@ -74,8 +78,19 @@
     let wasReady = false;
     let dirty = false, saving = false, pendingRevision = null;
     let previewRate = 0;
-    const preview = new LatestCameraPreview(el('video'), '/snapshot.jpg', stats => {
+    let noiseBoxes = [];
+    const renderNoise = () => LatestCameraPreview.showNoise(el('noiseOverlay'), el('video'), noiseBoxes);
+    window.addEventListener('resize', renderNoise);
+    const preview = new LatestCameraPreview(el('video'), '/snapshot.jpg?noise=1', stats => {
       previewRate = stats.ready ? stats.fps : 0;
+    }, headers => {
+      noiseBoxes = JSON.parse(headers?.get('X-Noise-Boxes') || '[]');
+      renderNoise();
+      const timeout = headers?.get('X-Stationary-Timeout');
+      const status = timeout == null ? 'Stationary filter status unavailable.' : Number(timeout)
+        ? `Stationary filter on (${timeout} s). Noise marks plane boxes rejected during autonomous sessions.`
+        : 'Stationary filter off.';
+      if (el('stationaryFilter').textContent !== status) el('stationaryFilter').textContent = status;
     });
     window.addEventListener('pagehide', () => preview.stop());
     function showControls() {
